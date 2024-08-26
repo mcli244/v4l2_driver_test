@@ -12,6 +12,11 @@
         "mt20xx.h": "c",
         "vivid-ctrls.h": "c",
         "vivid-osd.h": "c",
-        "vivid-vbi-out.h": "c"
+        "vivid-vbi-out.h": "c",
+        "typeinfo": "c",
+        "fixp-arith.h": "c",
+        "videodev2.h": "c",
+        "stat.h": "c",
+        "stdio.h": "c"
     }
 }

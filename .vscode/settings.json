@@ -1,0 +1,17 @@
+{
+    "files.associations": {
+        "videobuf-vmalloc.h": "c",
+        "timer.h": "c",
+        "list.h": "c",
+        "slab.h": "c",
+        "fs.h": "c",
+        "errno.h": "c",
+        "init.h": "c",
+        "net.h": "c",
+        "socket.h": "c",
+        "mt20xx.h": "c",
+        "vivid-ctrls.h": "c",
+        "vivid-osd.h": "c",
+        "vivid-vbi-out.h": "c"
+    }
+}

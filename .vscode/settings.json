@@ -20,6 +20,17 @@
         "stdio.h": "c",
         "v4l2-ioctl.h": "c",
         "vivid-sdr-cap.h": "c",
-        "type_traits": "c"
+        "type_traits": "c",
+        "v4l2-dv-timings.h": "c",
+        "mutex.h": "c",
+        "v4l2-event.h": "c",
+        "up3d_610.h": "c",
+        "v4l2-fh.h": "c",
+        "videobuf2-dma-contig.h": "c",
+        "videobuf2-vmalloc.h": "c",
+        "up3d_vb2ops.h": "c",
+        "platform_device.h": "c",
+        "videobuf2-core.h": "c",
+        "up3d_v4l2_fops.h": "c"
     }
 }

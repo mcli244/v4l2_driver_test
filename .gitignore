@@ -1,0 +1,8 @@
+*.o
+.vscode
+.tmp_versio
+*.cmd
+*-safe
+*.mod
+settings.json
+*mod*.c

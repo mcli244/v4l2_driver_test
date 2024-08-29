@@ -17,6 +17,9 @@
         "fixp-arith.h": "c",
         "videodev2.h": "c",
         "stat.h": "c",
-        "stdio.h": "c"
+        "stdio.h": "c",
+        "v4l2-ioctl.h": "c",
+        "vivid-sdr-cap.h": "c",
+        "type_traits": "c"
     }
 }

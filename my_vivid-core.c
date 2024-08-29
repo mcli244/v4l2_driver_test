@@ -35,6 +35,7 @@
 #include <media/v4l2-ioctl.h>
 #include <media/v4l2-fh.h>
 #include <media/v4l2-event.h>
+#include <linux/timer.h>
 
 #include "vivid-core.h"
 #include "vivid-vid-common.h"
@@ -50,137 +51,65 @@
 #include "vivid-cec.h"
 #include "vivid-ctrls.h"
 
+#define trace_in()	printk(KERN_WARNING "%s:%d|%s in.", __FILE__, __LINE__,__FUNCTION__)
+#define trace_exit()	printk(KERN_WARNING "%s:%d|%s in.", __FILE__, __LINE__,__FUNCTION__)
+
 #define VIVID_MODULE_NAME "myvivid"
 
-/* The maximum number of vivid devices */
-#define VIVID_MAX_DEVS CONFIG_VIDEO_VIVID_MAX_DEVS
+// 默认格式
+#define WIDTH_MAX	1920
+#define HEIGHT_MAX	1080
 
-MODULE_DESCRIPTION("Virtual Video Test Driver");
-MODULE_AUTHOR("Hans Verkuil");
-MODULE_LICENSE("GPL");
+#define WIDTH_DEF	640
+#define HEIGHT_DEF	360
 
-static unsigned n_devs = 1;
-module_param(n_devs, uint, 0444);
-MODULE_PARM_DESC(n_devs, " number of driver instances to create");
-
-static int vid_cap_nr[VIVID_MAX_DEVS] = { [0 ... (VIVID_MAX_DEVS - 1)] = -1 };
-module_param_array(vid_cap_nr, int, NULL, 0444);
-MODULE_PARM_DESC(vid_cap_nr, " videoX start number, -1 is autodetect");
-
-static int vid_out_nr[VIVID_MAX_DEVS] = { [0 ... (VIVID_MAX_DEVS - 1)] = -1 };
-module_param_array(vid_out_nr, int, NULL, 0444);
-MODULE_PARM_DESC(vid_out_nr, " videoX start number, -1 is autodetect");
-
-static int vbi_cap_nr[VIVID_MAX_DEVS] = { [0 ... (VIVID_MAX_DEVS - 1)] = -1 };
-module_param_array(vbi_cap_nr, int, NULL, 0444);
-MODULE_PARM_DESC(vbi_cap_nr, " vbiX start number, -1 is autodetect");
-
-static int vbi_out_nr[VIVID_MAX_DEVS] = { [0 ... (VIVID_MAX_DEVS - 1)] = -1 };
-module_param_array(vbi_out_nr, int, NULL, 0444);
-MODULE_PARM_DESC(vbi_out_nr, " vbiX start number, -1 is autodetect");
-
-static int sdr_cap_nr[VIVID_MAX_DEVS] = { [0 ... (VIVID_MAX_DEVS - 1)] = -1 };
-module_param_array(sdr_cap_nr, int, NULL, 0444);
-MODULE_PARM_DESC(sdr_cap_nr, " swradioX start number, -1 is autodetect");
-
-static int radio_rx_nr[VIVID_MAX_DEVS] = { [0 ... (VIVID_MAX_DEVS - 1)] = -1 };
-module_param_array(radio_rx_nr, int, NULL, 0444);
-MODULE_PARM_DESC(radio_rx_nr, " radioX start number, -1 is autodetect");
-
-static int radio_tx_nr[VIVID_MAX_DEVS] = { [0 ... (VIVID_MAX_DEVS - 1)] = -1 };
-module_param_array(radio_tx_nr, int, NULL, 0444);
-MODULE_PARM_DESC(radio_tx_nr, " radioX start number, -1 is autodetect");
-
-static int ccs_cap_mode[VIVID_MAX_DEVS] = { [0 ... (VIVID_MAX_DEVS - 1)] = -1 };
-module_param_array(ccs_cap_mode, int, NULL, 0444);
-MODULE_PARM_DESC(ccs_cap_mode, " capture crop/compose/scale mode:\n"
-			   "\t\t    bit 0=crop, 1=compose, 2=scale,\n"
-			   "\t\t    -1=user-controlled (default)");
-
-static int ccs_out_mode[VIVID_MAX_DEVS] = { [0 ... (VIVID_MAX_DEVS - 1)] = -1 };
-module_param_array(ccs_out_mode, int, NULL, 0444);
-MODULE_PARM_DESC(ccs_out_mode, " output crop/compose/scale mode:\n"
-			   "\t\t    bit 0=crop, 1=compose, 2=scale,\n"
-			   "\t\t    -1=user-controlled (default)");
-
-static unsigned multiplanar[VIVID_MAX_DEVS] = { [0 ... (VIVID_MAX_DEVS - 1)] = 1 };
-module_param_array(multiplanar, uint, NULL, 0444);
-MODULE_PARM_DESC(multiplanar, " 1 (default) creates a single planar device, 2 creates a multiplanar device.");
-
-/* Default: video + vbi-cap (raw and sliced) + radio rx + radio tx + sdr + vbi-out + vid-out */
-static unsigned node_types[VIVID_MAX_DEVS] = { [0 ... (VIVID_MAX_DEVS - 1)] = 0x1d3d };
-module_param_array(node_types, uint, NULL, 0444);
-MODULE_PARM_DESC(node_types, " node types, default is 0x1d3d. Bitmask with the following meaning:\n"
-			     "\t\t    bit 0: Video Capture node\n"
-			     "\t\t    bit 2-3: VBI Capture node: 0 = none, 1 = raw vbi, 2 = sliced vbi, 3 = both\n"
-			     "\t\t    bit 4: Radio Receiver node\n"
-			     "\t\t    bit 5: Software Defined Radio Receiver node\n"
-			     "\t\t    bit 8: Video Output node\n"
-			     "\t\t    bit 10-11: VBI Output node: 0 = none, 1 = raw vbi, 2 = sliced vbi, 3 = both\n"
-			     "\t\t    bit 12: Radio Transmitter node\n"
-			     "\t\t    bit 16: Framebuffer for testing overlays");
-
-/* Default: 4 inputs */
-static unsigned num_inputs[VIVID_MAX_DEVS] = { [0 ... (VIVID_MAX_DEVS - 1)] = 4 };
-module_param_array(num_inputs, uint, NULL, 0444);
-MODULE_PARM_DESC(num_inputs, " number of inputs, default is 4");
-
-/* Default: input 0 = WEBCAM, 1 = TV, 2 = SVID, 3 = HDMI */
-static unsigned input_types[VIVID_MAX_DEVS] = { [0 ... (VIVID_MAX_DEVS - 1)] = 0xe4 };
-module_param_array(input_types, uint, NULL, 0444);
-MODULE_PARM_DESC(input_types, " input types, default is 0xe4. Two bits per input,\n"
-			      "\t\t    bits 0-1 == input 0, bits 31-30 == input 15.\n"
-			      "\t\t    Type 0 == webcam, 1 == TV, 2 == S-Video, 3 == HDMI");
-
-/* Default: 2 outputs */
-static unsigned num_outputs[VIVID_MAX_DEVS] = { [0 ... (VIVID_MAX_DEVS - 1)] = 2 };
-module_param_array(num_outputs, uint, NULL, 0444);
-MODULE_PARM_DESC(num_outputs, " number of outputs, default is 2");
-
-/* Default: output 0 = SVID, 1 = HDMI */
-static unsigned output_types[VIVID_MAX_DEVS] = { [0 ... (VIVID_MAX_DEVS - 1)] = 2 };
-module_param_array(output_types, uint, NULL, 0444);
-MODULE_PARM_DESC(output_types, " output types, default is 0x02. One bit per output,\n"
-			      "\t\t    bit 0 == output 0, bit 15 == output 15.\n"
-			      "\t\t    Type 0 == S-Video, 1 == HDMI");
-
-unsigned vivid_debug;
-module_param(vivid_debug, uint, 0644);
-MODULE_PARM_DESC(vivid_debug, " activates debug info");
-
-static bool no_error_inj;
-module_param(no_error_inj, bool, 0444);
-MODULE_PARM_DESC(no_error_inj, " if set disable the error injecting controls");
-
-static unsigned int allocators[VIVID_MAX_DEVS] = { [0 ... (VIVID_MAX_DEVS - 1)] = 0 };
-module_param_array(allocators, uint, NULL, 0444);
-MODULE_PARM_DESC(allocators, " memory allocator selection, default is 0.\n"
-			     "\t\t    0 == vmalloc\n"
-			     "\t\t    1 == dma-contig");
-
-// static struct vivid_dev *vivid_devs[VIVID_MAX_DEVS];
-
-const struct v4l2_rect vivid_min_rect = {
-	0, 0, MIN_WIDTH, MIN_HEIGHT
+struct my_vb2_buf {
+	struct vb2_v4l2_buffer vb;	// 必须在第一个
+	struct list_head list;
 };
 
-const struct v4l2_rect vivid_max_rect = {
-	0, 0, MAX_WIDTH * MAX_ZOOM, MAX_HEIGHT * MAX_ZOOM
+typedef struct 
+{
+	uint8_t		description[32]; 	
+	uint32_t	pixel_format;		// 像素格式V4L2_PIX_FMT_XXX
+	uint8_t		bytes_per_pixel;		// 每个像素占用多少字节
+}my_fmtdesc_t;
+
+struct myvideo_ctx_t{
+	struct v4l2_format 		cur_v4l2_format;	// 保存当前的格式设置
+	struct v4l2_device		v4l2_dev;		
+	struct video_device		vid_cap_dev;	
+	struct mutex			mutex;
+	my_fmtdesc_t *fmt_lists;
+
+	// 队列和buffer
+	struct vb2_queue my_vb_queue;
+	struct list_head my_vb_queue_active;
+	spinlock_t		 my_vb_queue_lock;
 };
 
-static struct vivid_dev *my_vivid_dev;
-static struct v4l2_format my_v4l2_format;
-static struct v4l2_fmtdesc my_fmtdesc_list[]=
+static struct myvideo_ctx_t myvideo_ctx;
+
+static my_fmtdesc_t my_fmtdesc_lists[]=
 {
 	{
+		.description = "8:8:8, RGB",
+		.pixel_format = V4L2_PIX_FMT_RGB24,
+		.bytes_per_pixel = 3,
+	},
+	{
 		.description = "5:6:5, RGB",
-		.pixelformat = V4L2_PIX_FMT_RGB565,
+		.pixel_format = V4L2_PIX_FMT_RGB565,
+		.bytes_per_pixel = 1,
 	},
 	{
 		.description = "16  YUV 4:2:2",
-		.pixelformat = V4L2_PIX_FMT_YUYV,
+		.pixel_format = V4L2_PIX_FMT_YUYV,
+		.bytes_per_pixel = 1,
 	}
 };
+
+static struct timer_list myvivi_timer;
 
 static int my_vidioc_querycap(struct file *file, void *fh, struct v4l2_capability *cap)
 {
@@ -200,66 +129,232 @@ static int my_vidioc_querycap(struct file *file, void *fh, struct v4l2_capabilit
 	return 0;
 }
 
-static int vivid_fop_release(struct file *file)
+/** 
+ * 调用时机：由ioctl命令VIDIOC_REQBUFS和VIDIOC_CREATE_BUFS调用时被调用
+ * 作用：设置参数
+ */
+static int myvivid_queue_setup(struct vb2_queue *q,
+			   unsigned int *num_buffers, unsigned int *num_planes,
+			   unsigned int sizes[], struct device *alloc_devs[])
 {
-    printk(KERN_WARNING "vivid_fop_release.");
-    return 0;
-	// struct vivid_dev *dev = video_drvdata(file);
-	// struct video_device *vdev = video_devdata(file);
+	struct myvideo_ctx_t *ctx = vb2_get_drv_priv(q);
 
-	// mutex_lock(&dev->mutex);
-	// if (!no_error_inj && v4l2_fh_is_singular_file(file) &&
-	//     !video_is_registered(vdev) && vivid_is_last_user(dev)) {
-	// 	/*
-	// 	 * I am the last user of this driver, and a disconnect
-	// 	 * was forced (since this video_device is unregistered),
-	// 	 * so re-register all video_device's again.
-	// 	 */
-	// 	v4l2_info(&dev->v4l2_dev, "reconnect\n");
-	// 	set_bit(V4L2_FL_REGISTERED, &dev->vid_cap_dev.flags);
-	// 	set_bit(V4L2_FL_REGISTERED, &dev->vid_out_dev.flags);
-	// 	set_bit(V4L2_FL_REGISTERED, &dev->vbi_cap_dev.flags);
-	// 	set_bit(V4L2_FL_REGISTERED, &dev->vbi_out_dev.flags);
-	// 	set_bit(V4L2_FL_REGISTERED, &dev->sdr_cap_dev.flags);
-	// 	set_bit(V4L2_FL_REGISTERED, &dev->radio_rx_dev.flags);
-	// 	set_bit(V4L2_FL_REGISTERED, &dev->radio_tx_dev.flags);
-	// }
-	// mutex_unlock(&dev->mutex);
-	// if (file->private_data == dev->overlay_cap_owner)
-	// 	dev->overlay_cap_owner = NULL;
-	// if (file->private_data == dev->radio_rx_rds_owner) {
-	// 	dev->radio_rx_rds_last_block = 0;
-	// 	dev->radio_rx_rds_owner = NULL;
-	// }
-	// if (file->private_data == dev->radio_tx_rds_owner) {
-	// 	dev->radio_tx_rds_last_block = 0;
-	// 	dev->radio_tx_rds_owner = NULL;
-	// }
-	// if (vdev->queue)
-	// 	return vb2_fop_release(file);
-	// return v4l2_fh_release(file);
+	trace_in();
+
+	*num_planes = 1;	// 目前只支持单层，设为1
+	sizes[0] = ctx->cur_v4l2_format.fmt.pix.sizeimage;
+	// TODO:num_buffers\alloc_devs待研究
+
+	trace_exit();
+
+	return 0;
+};
+
+/** 
+ * 调用时机：缓冲区被放入到队列前调用此函数
+ * 作用：动需要执行一些初始化工作或获取、修改缓冲区，若驱动支持VIDIOC_CREATE_BUFS，
+ * 		 则需要验证缓冲区的大小，若有错误发生，则缓冲区不会入队。
+ */
+static int myvivid_buf_prepare(struct vb2_buffer *vb)
+{
+	struct myvideo_ctx_t *ctx = vb2_get_drv_priv(vb->vb2_queue);
+	int ret = 0;
+
+	trace_in();
+	// 设置payload，payload为图像大小
+	vb2_set_plane_payload(vb, 0, ctx->cur_v4l2_format.fmt.pix.sizeimage);
+	// 缓冲区的有效字节数为图像大小
+	vb->planes[0].bytesused = 0;	
+	// 检查缓冲区虚拟地址是否存在和payload是否正确设置
+	if (vb2_plane_vaddr(vb, 0) &&
+		vb2_get_plane_payload(vb, 0) > vb2_plane_size(vb, 0)) {
+		ret = -EINVAL;
+		goto out;
+	}
+	return 0;
+
+	trace_exit();
+out:
+	return ret;
+}
+
+static void myvivid_buf_finish(struct vb2_buffer *vb)
+{
+	trace_in();
+}
+
+/**  必要
+ * 调用时机：
+ * 作用：缓冲区加入队列
+ */
+static void myvivid_buf_queue(struct vb2_buffer *vb)
+{
+	
+	struct vb2_v4l2_buffer *vbuf = to_vb2_v4l2_buffer(vb);
+	struct my_vb2_buf *my_vb = container_of(vbuf, struct my_vb2_buf, vb);
+	struct myvideo_ctx_t *ctx = vb2_get_drv_priv(vb->vb2_queue);
+
+	trace_in();
+
+	spin_lock(&ctx->my_vb_queue_lock);
+	list_add_tail(&my_vb->list, &ctx->my_vb_queue_active);
+	spin_unlock(&ctx->my_vb_queue_lock);
+
+	trace_exit();
+}
+
+static int myvivid_start_streaming(struct vb2_queue *q, unsigned int count)
+{
+	trace_in();
+
+	// TODO:控制硬件开始采集
+
+
+	return 0;
+}
+
+/**  必要
+ * 调用时机：
+ * 作用：停止请求
+ */
+static void myvivid_stop_streaming(struct vb2_queue *q)
+{
+	struct myvideo_ctx_t *ctx = vb2_get_drv_priv(q);
+	unsigned long flags;
+
+	trace_in();
+
+	// TODO:控制硬件停止采集
+	spin_lock_irqsave(&ctx->my_vb_queue_lock, flags);
+	while (!list_empty(&ctx->my_vb_queue_active)) {
+		struct my_vb2_buf *buf = list_entry(ctx->my_vb_queue_active.next, struct my_vb2_buf, list);
+		list_del(&buf->list);
+		vb2_buffer_done(&buf->vb.vb2_buf, VB2_BUF_STATE_ERROR);
+	}
+	spin_unlock_irqrestore(&ctx->my_vb_queue_lock, flags);
+
+}
+
+static void myvivid_wait_prepare(struct vb2_queue *q)
+{
+	trace_in();
+}
+
+static void myvivid_wait_finish(struct vb2_queue *q)
+{
+	trace_in();
+}
+
+static int myvivid_buf_init(struct vb2_buffer *vb)
+{
+	trace_in();
+	return 0;
+}
+
+static void myvivid_buf_cleanup(struct vb2_buffer *vb)
+{
+	trace_in();
+}
+
+const struct vb2_ops my_vb2_ops = {
+	.queue_setup		= myvivid_queue_setup,
+	.buf_prepare		= myvivid_buf_prepare,
+	.buf_finish			= myvivid_buf_finish,
+	.buf_queue			= myvivid_buf_queue,
+	.start_streaming	= myvivid_start_streaming,
+	.stop_streaming		= myvivid_stop_streaming,
+	.wait_prepare		= myvivid_wait_prepare,
+	.wait_finish		= myvivid_wait_finish,
+	.buf_init			= myvivid_buf_init,
+	.buf_cleanup		= myvivid_buf_cleanup,
+};
+
+static int _vb_queue_init(struct vb2_queue *q)
+{
+    q->type 				= V4L2_BUF_TYPE_VIDEO_CAPTURE;  		// 类型是视频捕获设备
+    q->io_modes 			= VB2_MMAP; 							// 仅支持应用层做mmap映射的方式
+    q->buf_struct_size 		= sizeof(struct my_vb2_buf);
+    q->ops 					= &my_vb2_ops,   				
+	// 缓存驱对应的内存分配器操作函数，这里vb2_vmalloc_memops不止一种。vb2_dma_contig_memops\vb2_dma_sg_memops\vb2_vmalloc_memops\或者自定义
+	// 详细见https://cloud.tencent.com/developer/article/2320146 "缓冲区的I/O模式"
+    q->mem_ops 				= &vb2_vmalloc_memops;   				// videobuf2_vmalloc.h
+    q->timestamp_flags 		= V4L2_BUF_FLAG_TIMESTAMP_MONOTONIC; 	// 时间戳是线性增加的
+    q->min_buffers_needed 	= 2;
+    q->lock 				= &myvideo_ctx.mutex;					// 保护struct vb2_queue的互斥锁，使缓冲队列的操作串行化，若驱动实有互斥锁，则可设置为NULL，videobuf2核心层API不使用此锁
+    // q->dev 					= my_vivid_dev->v4l2_dev.dev;
+	q->drv_priv				= &myvideo_ctx;
+
+	spin_lock_init(&myvideo_ctx.my_vb_queue_lock);
+	INIT_LIST_HEAD(&myvideo_ctx.my_vb_queue_active);
+
+    return vb2_queue_init(q);
+}
+
+
+static int _init_format(struct v4l2_format *f)
+{
+	f->fmt.pix.width = WIDTH_DEF;
+	f->fmt.pix.height = HEIGHT_DEF;
+	f->fmt.pix.pixelformat = my_fmtdesc_lists[0].pixel_format;
+	f->fmt.pix.bytesperline = f->fmt.pix.width * my_fmtdesc_lists[0].bytes_per_pixel;	
+	f->fmt.pix.sizeimage = f->fmt.pix.bytesperline * f->fmt.pix.height;
+	return 0;
+}
+
+static int myvivid_open(struct file *file)
+{
+	int ret;
+	trace_in();
+
+	// 初始化当前的格式
+	myvideo_ctx.fmt_lists = &my_fmtdesc_lists[0];
+	ret = _init_format(&myvideo_ctx.cur_v4l2_format);
+
+	ret = _vb_queue_init(&myvideo_ctx.my_vb_queue);
+	
+
+    return 0;
+}
+
+static int myvivid_release(struct file *file)
+{
+    trace_in();
+    return 0;
+}
+
+static unsigned int myvivid_poll(struct file *file, struct poll_table_struct *ptable)
+{
+	trace_in();
+    return 0;
+}
+
+static int myvivid_mmap(struct file *file, struct vm_area_struct * vma)
+{
+	trace_in();
+    return 0;
 }
 
 static const struct v4l2_file_operations myvivid_fops = {
-	.owner		= THIS_MODULE,
-	.open           = v4l2_fh_open,
-	.release        = vivid_fop_release,
-	.read           = vb2_fop_read,
-	.write          = vb2_fop_write,
-	.poll		= vb2_fop_poll,
-	.unlocked_ioctl = video_ioctl2,
-	.mmap           = vb2_fop_mmap,
+	.owner			= THIS_MODULE,
+	.open           = myvivid_open,
+	.release        = myvivid_release,
+	// .read           = myvivid_read,		// 本驱动只支持MMAP 所以这里不提供read/wirte方式的接口
+	// .write          = myvivid_write,
+	.poll			= myvivid_poll,
+	.mmap           = myvivid_mmap,
+	// ioctl -> unlocked_ioctl -> video_ioctl2 -> my_v4l2_ioctl_ops(函数集) 相当于通过video_ioctl2中转了一次
+	.unlocked_ioctl = video_ioctl2,		
 };
 
 /* 列举支持哪种格式 */
 static int myvivi_vidioc_enum_fmt_vid_cap(struct file *file, void *fh,struct v4l2_fmtdesc *f)
 {
 	printk(KERN_WARNING "%s.", __FUNCTION__);
-	if (f->index >= 2)	// 格式类型的索引，这里我们只支持一种格式，所以索引从0开始
+	if (f->index >= ARRAY_SIZE(my_fmtdesc_lists))	
 		return -EINVAL;
 
-	strcpy(f->description, my_fmtdesc_list[f->index].description);
-	f->pixelformat = my_fmtdesc_list[f->index].pixelformat;
+	strcpy(f->description, my_fmtdesc_lists[f->index].description);
+	f->pixelformat = my_fmtdesc_lists[f->index].pixel_format;
 
 	return 0;
 }
@@ -268,18 +363,7 @@ static int myvivi_vidioc_enum_fmt_vid_cap(struct file *file, void *fh,struct v4l
 static int myvivi_vidioc_g_fmt_vid_cap(struct file *file, void *fh,struct v4l2_format *f)
 {
 	printk(KERN_WARNING "%s.", __FUNCTION__);
-	// memcpy(f, &my_v4l2_format, sizeof(my_v4l2_format));
-
-	// 设置图像的宽、高
-	f->fmt.pix.width = my_v4l2_format.fmt.pix.width;
-	f->fmt.pix.height = my_v4l2_format.fmt.pix.height;
-	f->fmt.pix.pixelformat = my_v4l2_format.fmt.pix.pixelformat;
-	// 计算每行多少bit = width * 位深，赋值各成员变量struct usbvision_v4l2_format_st ---> int bytes_per_pixel;(1、2、3、4、2.....)
-	f->fmt.pix.bytesperline = f->fmt.pix.width * 8;
-	// 计算图像大小: 每行多少bit * height(行数) 单位：bit
-	f->fmt.pix.sizeimage = f->fmt.pix.bytesperline * f->fmt.pix.height;
-	f->fmt.pix.colorspace = V4L2_COLORSPACE_SMPTE170M;
-	f->fmt.pix.field = V4L2_FIELD_NONE; 
+	memcpy(f, &myvideo_ctx.cur_v4l2_format, sizeof(struct v4l2_format));
 	return 0;
 }
 
@@ -287,11 +371,18 @@ static int myvivi_vidioc_g_fmt_vid_cap(struct file *file, void *fh,struct v4l2_f
 /* 尝试是否支持某种格式 */
 static int myvivi_vidioc_try_fmt_vid_cap(struct file *file, void *fh,struct v4l2_format *f)
 {
-	unsigned int maxw, maxh;
     enum v4l2_field field;
+	int index=0;
 	
-	printk(KERN_WARNING "%s.", __FUNCTION__);
-	if(f->fmt.pix.pixelformat != V4L2_PIX_FMT_YUYV)
+	trace_in();
+
+	for(index=0; index<ARRAY_SIZE(my_fmtdesc_lists); index++)
+	{
+		if(f->fmt.pix.pixelformat == my_fmtdesc_lists[index].pixel_format)
+			break;
+	}
+
+	if(index >= ARRAY_SIZE(my_fmtdesc_lists))
 		return -EINVAL;
 	
 	field = f->fmt.pix.field;
@@ -301,18 +392,9 @@ static int myvivi_vidioc_try_fmt_vid_cap(struct file *file, void *fh,struct v4l2
 		return -EINVAL;
 	}
 
-	maxw  = 1024;
-	maxh  = 768;
-
-    /* 调整format的width, height, 
-     * 计算bytesperline, sizeimage
-     */
-	v4l_bound_align_image(&f->fmt.pix.width, 48, maxw, 2,
-			      &f->fmt.pix.height, 32, maxh, 0, 0);
-	f->fmt.pix.bytesperline =
-		(f->fmt.pix.width * 16) >> 3;
-	f->fmt.pix.sizeimage =
-		f->fmt.pix.height * f->fmt.pix.bytesperline;
+	v4l_bound_align_image(&f->fmt.pix.width, 48, WIDTH_MAX, 2,	&f->fmt.pix.height, 32, HEIGHT_MAX, 0, 0);
+	f->fmt.pix.bytesperline =	f->fmt.pix.width * my_fmtdesc_lists[index].bytes_per_pixel;
+	f->fmt.pix.sizeimage 	=	f->fmt.pix.height * f->fmt.pix.bytesperline;
 
 	return 0;
 }
@@ -325,7 +407,7 @@ static int myvivi_vidioc_s_fmt_vid_cap(struct file *file, void *fh,struct v4l2_f
 	if (ret < 0)
 		return ret;
 
-    memcpy(&my_v4l2_format, f, sizeof(my_v4l2_format));
+    memcpy(&myvideo_ctx.cur_v4l2_format, f, sizeof(myvideo_ctx.cur_v4l2_format));
     
 	return 0;
 }
@@ -375,7 +457,7 @@ const struct v4l2_ioctl_ops my_v4l2_ioctl_ops=
     .vidioc_try_fmt_vid_cap   = myvivi_vidioc_try_fmt_vid_cap,
     .vidioc_s_fmt_vid_cap     = myvivi_vidioc_s_fmt_vid_cap,
     
-    /* 缓冲区操作: 申请/查询/放入队列/取出队列 使用video buffer提供的函数 */
+    /* 缓冲区操作: 申请/查询/放入队列/取出队列 使用videobuffer2提供的函数 */
 	.vidioc_reqbufs			= vb2_ioctl_reqbufs,
 	.vidioc_create_bufs		= vb2_ioctl_create_bufs,
 	.vidioc_prepare_buf		= vb2_ioctl_prepare_buf,
@@ -401,146 +483,34 @@ static void my_v4l2_release(struct v4l2_device *v4l2_dev)
 
 static int my_vivid_probe(struct platform_device *pdev)
 {
-    int erron, i;
+    int erron;
     int ret;
-    struct vb2_queue *q;
     struct video_device *vfd;
-	v4l2_std_id tvnorms_cap = 0, tvnorms_out = 0;
-	static const struct v4l2_dv_timings def_dv_timings =
-					V4L2_DV_BT_CEA_1280X720P60;
-	unsigned in_type_counter[4] = { 0, 0, 0, 0 };
-	unsigned out_type_counter[4] = { 0, 0, 0, 0 };
-	int ccs_cap = ccs_cap_mode[0];
-	int ccs_out = ccs_out_mode[0];
 
     printk(KERN_WARNING "my_vivid_probe.");
-
-    my_vivid_dev = kzalloc(sizeof(*my_vivid_dev), GFP_KERNEL);
-	if (!my_vivid_dev)
-		return -ENOMEM;
-
     printk(KERN_WARNING "my_vivid_probe.1");
     /* register v4l2_device */
-    snprintf(my_vivid_dev->v4l2_dev.name, sizeof(my_vivid_dev->v4l2_dev.name), "%s-%03d", VIVID_MODULE_NAME, 0);
-	ret = v4l2_device_register(&pdev->dev, &my_vivid_dev->v4l2_dev);
+    snprintf(myvideo_ctx.v4l2_dev.name, sizeof(myvideo_ctx.v4l2_dev.name), "%s-%03d", VIVID_MODULE_NAME, 0);
+	ret = v4l2_device_register(&pdev->dev, &myvideo_ctx.v4l2_dev);
 	if (ret) {
-		kfree(my_vivid_dev);
 		return ret;
 	}
-	my_vivid_dev->v4l2_dev.release = my_v4l2_release;
-
-		ret = -ENOMEM;
-	/* initialize the test pattern generator */
-	tpg_init(&my_vivid_dev->tpg, 640, 360);
-	if (tpg_alloc(&my_vivid_dev->tpg, MAX_ZOOM * MAX_WIDTH))
-		goto free_dev;
-	my_vivid_dev->scaled_line = vzalloc(MAX_ZOOM * MAX_WIDTH);
-	if (!my_vivid_dev->scaled_line)
-		goto free_dev;
-	my_vivid_dev->blended_line = vzalloc(MAX_ZOOM * MAX_WIDTH);
-	if (!my_vivid_dev->blended_line)
-		goto free_dev;
-
-	/* load the edid */
-	my_vivid_dev->edid = vmalloc(256 * 128);
-	if (!my_vivid_dev->edid)
-		goto free_dev;
-
-	/* create a string array containing the names of all the preset timings */
-	while (v4l2_dv_timings_presets[my_vivid_dev->query_dv_timings_size].bt.width)
-		my_vivid_dev->query_dv_timings_size++;
-	my_vivid_dev->query_dv_timings_qmenu = kmalloc(my_vivid_dev->query_dv_timings_size *
-					   (sizeof(void *) + 32), GFP_KERNEL);
-	if (my_vivid_dev->query_dv_timings_qmenu == NULL)
-		goto free_dev;
-	for (i = 0; i < my_vivid_dev->query_dv_timings_size; i++) {
-		const struct v4l2_bt_timings *bt = &v4l2_dv_timings_presets[i].bt;
-		char *p = (char *)&my_vivid_dev->query_dv_timings_qmenu[my_vivid_dev->query_dv_timings_size];
-		u32 htot, vtot;
-
-		p += i * 32;
-		my_vivid_dev->query_dv_timings_qmenu[i] = p;
-
-		htot = V4L2_DV_BT_FRAME_WIDTH(bt);
-		vtot = V4L2_DV_BT_FRAME_HEIGHT(bt);
-		snprintf(p, 32, "%ux%u%s%u",
-			bt->width, bt->height, bt->interlaced ? "i" : "p",
-			(u32)bt->pixelclock / (htot * vtot));
-	}
-
-    /* set up the capabilities of the video capture device */
-    my_vivid_dev->vid_cap_caps = V4L2_CAP_VIDEO_CAPTURE | V4L2_CAP_STREAMING | V4L2_CAP_READWRITE;
-    
-    printk(KERN_WARNING "my_vivid_probe.2");
-	my_vivid_dev->fmt_cap = &vivid_formats[0];
-	my_vivid_dev->fmt_out = &vivid_formats[0];
-	if (!my_vivid_dev->multiplanar)
-		vivid_formats[0].data_offset[0] = 0;
-	my_vivid_dev->webcam_size_idx = 1;
-	my_vivid_dev->webcam_ival_idx = 3;
-	tpg_s_fourcc(&my_vivid_dev->tpg, my_vivid_dev->fmt_cap->fourcc);
-	my_vivid_dev->std_cap = V4L2_STD_PAL;
-	my_vivid_dev->std_out = V4L2_STD_PAL;
-	if (my_vivid_dev->input_type[0] == TV || my_vivid_dev->input_type[0] == SVID)
-		tvnorms_cap = V4L2_STD_ALL;
-	if (my_vivid_dev->output_type[0] == SVID)
-		tvnorms_out = V4L2_STD_ALL;
-	my_vivid_dev->dv_timings_cap = def_dv_timings;
-	my_vivid_dev->dv_timings_out = def_dv_timings;
-
-	ret = vivid_create_controls(my_vivid_dev, ccs_cap == -1, ccs_out == -1, no_error_inj,
-			in_type_counter[TV] || in_type_counter[SVID] ||
-			out_type_counter[SVID],
-			in_type_counter[HDMI] || out_type_counter[HDMI]);
-	if (ret)
-		goto unreg_dev;
-
-	/*
-	 * update the capture and output formats to do a proper initial
-	 * configuration.
-	 */
-	vivid_update_format_cap(my_vivid_dev, false);
-	vivid_update_format_out(my_vivid_dev);
-	v4l2_ctrl_handler_setup(&my_vivid_dev->ctrl_hdl_vid_cap);
-
+	myvideo_ctx.v4l2_dev.release = my_v4l2_release;
 	printk(KERN_WARNING "my_vivid_probe.123");
-	mutex_init(&my_vivid_dev->mutex);
-	spin_lock_init(&my_vivid_dev->slock);
-	/* init dma queues */
-	INIT_LIST_HEAD(&my_vivid_dev->vid_cap_active);
-
-    printk(KERN_WARNING "my_vivid_probe.3");
-    // 初始化一个队列
-    q = &my_vivid_dev->vb_vid_cap_q;
-    q->type = V4L2_BUF_TYPE_VIDEO_CAPTURE;  // 类型是视频捕获设备
-    q->io_modes = VB2_MMAP | VB2_USERPTR | VB2_DMABUF | VB2_READ; // 仅支持应用层做mmap映射的方式
-	q->drv_priv = my_vivid_dev;
-    q->buf_struct_size = sizeof(struct vivid_buffer);
-    q->ops = &vivid_vid_cap_qops;   // 操作接口用vivid提供的，位于vivid-vid-cap.c
-    q->mem_ops = &vb2_vmalloc_memops;   // videobuf2_vmalloc.h
-    q->timestamp_flags = V4L2_BUF_FLAG_TIMESTAMP_MONOTONIC; // 尚不明确
-    q->min_buffers_needed = 2;
-    q->lock = &my_vivid_dev->mutex;
-    q->dev = my_vivid_dev->v4l2_dev.dev;
-    ret = vb2_queue_init(q);
-    if (ret)
-	{
-		goto unreg_dev;
-	}
-
-    printk(KERN_WARNING "my_vivid_probe.4");
+	
     // 视频设备操作
-    vfd = &my_vivid_dev->vid_cap_dev;
+	mutex_init(&myvideo_ctx.mutex);
+    vfd = &myvideo_ctx.vid_cap_dev;
     snprintf(vfd->name, sizeof(vfd->name),  "vivid-%03d-vid-cap", 0);
     vfd->fops = &myvivid_fops;
     vfd->ioctl_ops = &my_v4l2_ioctl_ops;
-    vfd->device_caps = my_vivid_dev->vid_cap_caps;
+    vfd->device_caps = V4L2_CAP_VIDEO_CAPTURE | V4L2_CAP_STREAMING | V4L2_CAP_READWRITE;
     vfd->release = video_device_release_empty;
-    vfd->v4l2_dev = &my_vivid_dev->v4l2_dev;
-    vfd->queue = &my_vivid_dev->vb_vid_cap_q;   // 等待初始化
+    vfd->v4l2_dev = &myvideo_ctx.v4l2_dev;
+    vfd->queue = &myvideo_ctx.my_vb_queue;  
     vfd->tvnorms = 0;   // 意义不明
-    vfd->lock = &my_vivid_dev->mutex;    // 未v4l2设置锁，先没用上暂时不加
-	video_set_drvdata(vfd, my_vivid_dev);
+    vfd->lock = &myvideo_ctx.mutex;    // 未v4l2设置锁，先没用上暂时不加
+	video_set_drvdata(vfd, &myvideo_ctx);
     erron = video_register_device(vfd, VFL_TYPE_GRABBER, -1);
     if(erron)
     {
@@ -551,12 +521,10 @@ static int my_vivid_probe(struct platform_device *pdev)
     printk(KERN_WARNING "my_vivid_probe.6");
     return 0;
 
-free_dev:
 unreg_dev:
 
     printk(KERN_WARNING "my_vivid_probe error");
-    v4l2_device_put(&my_vivid_dev->v4l2_dev);
-    kfree(my_vivid_dev);
+    v4l2_device_put(&myvideo_ctx.v4l2_dev);
 
     return -ENOMEM;
 }
@@ -564,10 +532,9 @@ static int my_vivid_remove(struct platform_device *dev)
 {
     printk(KERN_WARNING "my_vivid_remove.");
 
-    video_unregister_device(&my_vivid_dev->vid_cap_dev);
-    vb2_queue_release(&my_vivid_dev->vb_vid_cap_q);
-    v4l2_device_put(&my_vivid_dev->v4l2_dev);
-    kfree(my_vivid_dev);
+    video_unregister_device(&myvideo_ctx.vid_cap_dev);
+    vb2_queue_release(&myvideo_ctx.my_vb_queue);
+    v4l2_device_put(&myvideo_ctx.v4l2_dev);
 
     return 0;
 }
@@ -589,6 +556,40 @@ static struct platform_driver my_vivid_pdrv = {
 	},
 };
 
+void myvivi_timer_function(struct timer_list *timer)
+{
+	printk(KERN_WARNING "myvivi_timer_function.");
+	mod_timer(timer, jiffies + HZ);
+
+#if 0
+	struct videobuf_buffer *vb;
+	void *vbuf;
+	struct timeval ts;
+    
+	struct vivid_buffer *buf;
+
+	if (!list_empty(&my_vivid_dev->vid_cap_active)) {
+		buf = list_entry(&my_vivid_dev->vid_cap_active,
+				struct vivid_buffer, list);
+		list_del(&buf->list);
+	}
+
+	if(buf)
+	{
+		myvivid_fillbuff(my_vivid_dev, buf);
+		vb2_buffer_done(&buf->vb.vb2_buf, VB2_BUF_STATE_DONE);
+	}
+
+out:
+    /* 3. 修改timer的超时时间 : 30fps, 1秒里有30帧数据
+     *    每1/30 秒产生一帧数据
+     */
+    mod_timer(&myvivi_timer, jiffies + HZ/30);
+	#endif
+
+}
+
+
 static int __init my_vivid_init(void)
 {
 	int ret;
@@ -601,6 +602,11 @@ static int __init my_vivid_init(void)
 	ret = platform_driver_register(&my_vivid_pdrv);
 	if (ret)
 		platform_device_unregister(&my_vivid_pdev);
+	
+	// 测试定时器
+	myvivi_timer.expires = jiffies + 5;
+	myvivi_timer.function = myvivi_timer_function;
+	add_timer(&myvivi_timer);
 
 	return ret;
 }
@@ -615,3 +621,6 @@ static void __exit my_vivid_exit(void)
 
 module_init(my_vivid_init);
 module_exit(my_vivid_exit);
+MODULE_DESCRIPTION("Video Test Driver");
+MODULE_AUTHOR("CoreyLee");
+MODULE_LICENSE("GPL");

@@ -29,7 +29,7 @@
 #include <linux/platform_device.h>
 #include <linux/videodev2.h>
 #include <media/v4l2-event.h>
-#include <linux/timer.h>
+
 
 #include <media/videobuf2-vmalloc.h>
 #include <media/videobuf2-dma-contig.h>
@@ -72,15 +72,6 @@ struct up3d_fmtdesc up3d_fmtdesc_lists[]=
 		.bytes_per_pixel = 1,
 	}
 };
-
-static struct timer_list up3d_timer;
-
-
-
-
-
-
-
 
 static void my_v4l2_release(struct v4l2_device *v4l2_dev)
 {
@@ -177,40 +168,6 @@ static struct platform_driver up3d_video_pdrv = {
 	},
 };
 
-void up3d_timer_function(struct timer_list *timer)
-{
-	trace_in();
-	mod_timer(timer, jiffies + HZ);
-
-#if 0
-	struct videobuf_buffer *vb;
-	void *vbuf;
-	struct timeval ts;
-    
-	struct vivid_buffer *buf;
-
-	if (!list_empty(&my_vivid_dev->vid_cap_active)) {
-		buf = list_entry(&my_vivid_dev->vid_cap_active,
-				struct vivid_buffer, list);
-		list_del(&buf->list);
-	}
-
-	if(buf)
-	{
-		up3d_fillbuff(my_vivid_dev, buf);
-		vb2_buffer_done(&buf->vb.vb2_buf, VB2_BUF_STATE_DONE);
-	}
-
-out:
-    /* 3. 修改timer的超时时间 : 30fps, 1秒里有30帧数据
-     *    每1/30 秒产生一帧数据
-     */
-    mod_timer(&myvivi_timer, jiffies + HZ/30);
-	#endif
-
-}
-
-
 static int __init up3d_video_610_init(void)
 {
 	int ret;
@@ -223,11 +180,6 @@ static int __init up3d_video_610_init(void)
 	ret = platform_driver_register(&up3d_video_pdrv);
 	if (ret)
 		platform_device_unregister(&up3d_video_pdev);
-	
-	// 测试定时器
-	up3d_timer.expires = jiffies + 5;
-	up3d_timer.function = up3d_timer_function;
-	add_timer(&up3d_timer);
 
 	trace_exit();
 	return ret;

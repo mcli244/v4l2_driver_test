@@ -6,3 +6,4 @@
 *.mod
 settings.json
 *mod*.c
+tmp.c

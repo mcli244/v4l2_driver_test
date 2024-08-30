@@ -31,6 +31,7 @@
         "up3d_vb2ops.h": "c",
         "platform_device.h": "c",
         "videobuf2-core.h": "c",
-        "up3d_v4l2_fops.h": "c"
+        "up3d_v4l2_fops.h": "c",
+        "videobuf-core.h": "c"
     }
 }

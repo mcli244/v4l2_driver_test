@@ -7,3 +7,8 @@
 settings.json
 *mod*.c
 tmp.c
+boot.cmd.default
+Makefile
+Module.symvers
+modules.order
+up3d610.ko

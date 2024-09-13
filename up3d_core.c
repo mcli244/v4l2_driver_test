@@ -102,6 +102,7 @@ static int up3d_video_pdrv_probe(struct platform_device *pdev)
 	up3dvideo_ctx.cap.version = 0x0001;          // 版本号
 	up3dvideo_ctx.cap.capabilities =	V4L2_CAP_VIDEO_CAPTURE | V4L2_CAP_STREAMING 
 									| V4L2_CAP_READWRITE | V4L2_CAP_DEVICE_CAPS;    // 能力，捕获和流 
+	up3dvideo_ctx.cap.device_caps = V4L2_CAP_VIDEO_CAPTURE | V4L2_CAP_STREAMING | V4L2_CAP_READWRITE;
 	up3dvideo_ctx.width_max = WIDTH_MAX;
 	up3dvideo_ctx.height_max = HEIGHT_MAX;
 	up3dvideo_ctx.width_def = WIDTH_DEF;
@@ -114,7 +115,7 @@ static int up3d_video_pdrv_probe(struct platform_device *pdev)
     vfd 				= &up3dvideo_ctx.vid_cap_dev;
     vfd->fops 			= &up3d_v4l2_fops;
     vfd->ioctl_ops 		= &up3d_v4l2_ioctl_ops;
-    vfd->device_caps 	= V4L2_CAP_VIDEO_CAPTURE | V4L2_CAP_STREAMING | V4L2_CAP_READWRITE;
+    vfd->device_caps 	= up3dvideo_ctx.cap.device_caps;
     vfd->release 		= video_device_release_empty;
     vfd->v4l2_dev 		= &up3dvideo_ctx.v4l2_dev;
     vfd->queue 			= &up3dvideo_ctx.vb_queue;  
@@ -122,7 +123,7 @@ static int up3d_video_pdrv_probe(struct platform_device *pdev)
     vfd->lock 			= &up3dvideo_ctx.mutex;    // 未v4l2设置锁，先没用上暂时不加
 	snprintf(vfd->name, sizeof(vfd->name),  "up3d-%03d-vid-cap", 0);
 	video_set_drvdata(vfd, &up3dvideo_ctx);
-    erron = video_register_device(vfd, VFL_TYPE_GRABBER, -1);
+    erron = video_register_device(vfd, VFL_TYPE_VIDEO, -1);
     if(erron)
     {
         printk(KERN_WARNING "video_register_device erron:%d ", erron);

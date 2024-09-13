@@ -167,6 +167,17 @@ static void up3d_wait_finish(struct vb2_queue *q)
 static int up3d_buf_init(struct vb2_buffer *vb)
 {
 	trace_in();
+
+	UP3D_DEBUG("vb->vb2_queue:%p", vb->vb2_queue);
+	UP3D_DEBUG("vb->index:%d type:0x%x memory:0x%x num_planes:%d timestamp:%lld state:%d", 
+		vb->index, vb->type, vb->memory, vb->num_planes, vb->timestamp, vb->state);
+
+	UP3D_DEBUG(" vb->planes ###################### ");
+	UP3D_DEBUG("mem_priv:%p dbuf_mapped:%d bytesused:%d length:%d min_length:%d offset:0x%x data_offset:0x%x", 
+		vb->planes[0].mem_priv, vb->planes[0].dbuf_mapped, vb->planes[0].bytesused, vb->planes[0].length, 
+		vb->planes[0].min_length, vb->planes[0].m.offset, vb->planes[0].data_offset);
+
+	trace_exit();
 	return 0;
 }
 

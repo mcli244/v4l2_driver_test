@@ -7,13 +7,20 @@
 #include <linux/printk.h>
 #include <linux/kernel.h>
 
+#define trace_in()		printk(KERN_INFO "%s:%d|%s in.", __FILE__, __LINE__,__FUNCTION__)
+#define trace_exit()	printk(KERN_INFO "%s:%d|%s exit.", __FILE__, __LINE__,__FUNCTION__)
+#define UP3D_DEBUG(format, ...)  printk(KERN_INFO "%s:%d|%s " format , __FILE__, __LINE__,__FUNCTION__,##__VA_ARGS__)
 
-#define trace_in()		printk(KERN_WARNING "%s:%d|%s in.", __FILE__, __LINE__,__FUNCTION__)
-#define trace_exit()	printk(KERN_WARNING "%s:%d|%s in.", __FILE__, __LINE__,__FUNCTION__)
 
 struct up3d_vb2_buf {
 	struct vb2_v4l2_buffer vb;	// 必须在第一个
 	struct list_head list;
+};
+
+struct up3d_framesize
+{
+	uint32_t	width;
+	uint32_t	height;
 };
 
 struct up3d_fmtdesc
@@ -21,6 +28,7 @@ struct up3d_fmtdesc
 	uint8_t		description[32]; 	
 	uint32_t	pixel_format;		// 像素格式V4L2_PIX_FMT_XXX
 	uint8_t		bytes_per_pixel;		// 每个像素占用多少字节
+	struct up3d_framesize framesize;
 };
 
 struct up3d_video_ctx

@@ -127,6 +127,40 @@ static int up3d_querycap(struct file *file, void *fh, struct v4l2_capability *ca
 	return 0;
 }
 
+static int up3d_enum_frameintervals(struct file *file, void *fh,
+					  struct v4l2_frmivalenum *fival)
+{
+	return 0;
+}
+
+static int up3d_enum_framesizes(struct file *file, void *fh,
+				      struct v4l2_frmsizeenum *fsize)
+{
+	int index = 0;
+	struct up3d_video_ctx *ctx = video_drvdata(file);
+	
+	trace_in();
+	
+	if (fsize->index > 0)	// 目前每种格式只支持一种分辨率
+		return -EINVAL;
+
+	for(index=0; index<ctx->fmt_lists_cnt; index++)
+	{
+		if(fsize->pixel_format == ctx->fmt_lists[index].pixel_format)
+			break;
+	}
+
+	if(index >= ctx->fmt_lists_cnt)
+		return -EINVAL;
+	
+	fsize->discrete.width = ctx->fmt_lists[index].framesize.width;
+	fsize->discrete.height = ctx->fmt_lists[index].framesize.height;
+
+	trace_exit();
+
+	return 0;
+}
+
 struct v4l2_ioctl_ops up3d_v4l2_ioctl_ops =
 {
     // 表示它是一个摄像头设备
@@ -148,10 +182,17 @@ struct v4l2_ioctl_ops up3d_v4l2_ioctl_ops =
 	.vidioc_expbuf			= vb2_ioctl_expbuf,
 	.vidioc_streamon		= vb2_ioctl_streamon,
 	.vidioc_streamoff		= vb2_ioctl_streamoff,
+	.vidioc_overlay			= vb2_ioctl_over
+	int (*vidioc_overlay)(struct file *file, void *fh, unsigned int i);
+	int (*vidioc_g_fbuf)(struct file *file, void *fh,
+			     struct v4l2_framebuffer *a);
+	int (*vidioc_s_fbuf)(struct file *file, void *fh,
+			     const struct v4l2_framebuffer *a);
 
 	/* 输入设备相关 */
 	.vidioc_enum_input		= up3d_enum_input,
 	.vidioc_g_input			= up3d_g_input,
 	.vidioc_s_input			= up3d_s_input,
-
+	// .vidioc_enum_frameintervals = up3d_enum_frameintervals,		// 枚举特定格式下的帧率
+	.vidioc_enum_framesizes = up3d_enum_framesizes, 			// 枚举特定格式下的
 };

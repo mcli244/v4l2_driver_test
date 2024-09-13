@@ -60,16 +60,22 @@ struct up3d_fmtdesc up3d_fmtdesc_lists[]=
 		.description = "8:8:8, RGB",
 		.pixel_format = V4L2_PIX_FMT_RGB24,
 		.bytes_per_pixel = 3,
+		.framesize.width = WIDTH_DEF,
+		.framesize.height = HEIGHT_DEF,
 	},
 	{
 		.description = "5:6:5, RGB",
 		.pixel_format = V4L2_PIX_FMT_RGB565,
 		.bytes_per_pixel = 1,
+		.framesize.width = WIDTH_DEF,
+		.framesize.height = HEIGHT_DEF,
 	},
 	{
 		.description = "16  YUV 4:2:2",
 		.pixel_format = V4L2_PIX_FMT_YUYV,
 		.bytes_per_pixel = 1,
+		.framesize.width = WIDTH_DEF,
+		.framesize.height = HEIGHT_DEF,
 	}
 };
 

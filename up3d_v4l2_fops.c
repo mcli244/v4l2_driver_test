@@ -9,6 +9,8 @@
 
 static int _vb_queue_init(struct vb2_queue *q, struct up3d_video_ctx *ctx)
 {
+	trace_in();
+
     q->type 				= V4L2_BUF_TYPE_VIDEO_CAPTURE;  		// 类型是视频捕获设备
     q->io_modes 			= VB2_MMAP; 							// 仅支持应用层做mmap映射的方式
     q->buf_struct_size 		= sizeof(struct up3d_vb2_buf);
@@ -24,45 +26,78 @@ static int _vb_queue_init(struct vb2_queue *q, struct up3d_video_ctx *ctx)
 	spin_lock_init(&ctx->vb_queue_lock);
 	INIT_LIST_HEAD(&ctx->vb_queue_active);
 
+	trace_exit();
     return vb2_queue_init(q);
 }
 
 
 static int _init_format(struct v4l2_format *f, struct up3d_video_ctx *ctx)
 {
+	trace_in();
 	f->fmt.pix.width = ctx->width_def;
 	f->fmt.pix.height = ctx->height_def;
 	f->fmt.pix.pixelformat = ctx->fmt_lists[0].pixel_format;
 	f->fmt.pix.bytesperline = f->fmt.pix.width * ctx->fmt_lists[0].bytes_per_pixel;	
 	f->fmt.pix.sizeimage = f->fmt.pix.bytesperline * f->fmt.pix.height;
+	trace_exit();
 	return 0;
 }
 
 static int up3d_open(struct file *file)
 {
+	int ret= -1;
+	
     struct up3d_video_ctx *ctx = video_drvdata(file);
 	trace_in();
 
+	ret = v4l2_fh_open(file);
+	if (ret < 0)
+	{
+		UP3D_DEBUG("v4l2_fh_open failed ret:%d\n", ret);
+		return ret;
+	}
+
 	_init_format(&ctx->cur_v4l2_format, ctx);
+	trace_exit();
     return _vb_queue_init(&ctx->vb_queue, ctx);
 }
 
 static int up3d_release(struct file *file)
 {
+	int ret;
     trace_in();
-    return 0;
+
+	ret = vb2_fop_release(file);
+	UP3D_DEBUG("ret:%d", ret);
+
+	ret = v4l2_fh_release(file);
+	UP3D_DEBUG("ret:%d", ret);
+
+	trace_exit();
+    return ret;
 }
 
 static unsigned int up3d_poll(struct file *file, struct poll_table_struct *ptable)
 {
-	trace_in();
-    return 0;
+	int ret = 0;
+
+	ret = vb2_fop_poll(file, ptable);
+	if(ret != 0)
+		UP3D_DEBUG("ret:%d", ret);
+
+    return ret;
 }
 
 static int up3d_mmap(struct file *file, struct vm_area_struct * vma)
 {
+	int ret = 0;
+
 	trace_in();
-    return 0;
+	ret = vb2_fop_mmap(file, vma);
+	UP3D_DEBUG("ret:%d", ret);
+	trace_exit();
+	
+    return ret;
 }
 
 const struct v4l2_file_operations up3d_v4l2_fops = {

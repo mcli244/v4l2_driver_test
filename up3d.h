@@ -7,13 +7,26 @@
 #include <linux/printk.h>
 #include <linux/kernel.h>
 
-#define trace_in()		printk(KERN_INFO "%s:%d|%s in.", __FILE__, __LINE__,__FUNCTION__)
-#define trace_exit()	printk(KERN_INFO "%s:%d|%s exit.", __FILE__, __LINE__,__FUNCTION__)
-#define UP3D_DEBUG(format, ...)  printk(KERN_INFO "%s:%d|%s " format , __FILE__, __LINE__,__FUNCTION__,##__VA_ARGS__)
+
+
+extern unsigned long long get_current_timestamp(void);
+
+#if 0
+#define trace_in()					printk(KERN_DEBUG "%s:%d|%s(%lld) in.", __FILE__, __LINE__,__FUNCTION__, get_current_timestamp())
+#define trace_exit()				printk(KERN_DEBUG "%s:%d|%s(%lld) exit.", __FILE__, __LINE__,__FUNCTION__, get_current_timestamp())
+#define UP3D_DEBUG(format, ...)  	printk(KERN_DEBUG "%s:%d|%s(%lld) " format , __FILE__, __LINE__,__FUNCTION__, get_current_timestamp(), ##__VA_ARGS__)
+#else 
+#define trace_in()					
+#define trace_exit()				
+#define UP3D_DEBUG(format, ...)  	
+#endif
 
 
 struct up3d_vb2_buf {
 	struct vb2_v4l2_buffer vb;	// 必须在第一个
+	bool			prepared;
+	u32				vaddr;
+	size_t			size;
 	struct list_head list;
 };
 
@@ -33,6 +46,7 @@ struct up3d_fmtdesc
 
 struct up3d_video_ctx
 {
+	struct device			*dev;
 	struct v4l2_format 		cur_v4l2_format;	// 保存当前的格式设置
 	struct v4l2_device		v4l2_dev;		
 	struct video_device		vid_cap_dev;	

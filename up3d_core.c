@@ -81,7 +81,8 @@ struct up3d_fmtdesc up3d_fmtdesc_lists[]=
 
 static void my_v4l2_release(struct v4l2_device *v4l2_dev)
 {
-
+	trace_in();
+	trace_exit();
 }
 
 
@@ -91,8 +92,9 @@ static int up3d_video_pdrv_probe(struct platform_device *pdev)
     int ret;
     struct video_device *vfd;
 
-    printk(KERN_WARNING "my_vivid_probe.");
-    printk(KERN_WARNING "my_vivid_probe.1");
+	trace_in();
+
+	up3dvideo_ctx.dev = &pdev->dev;
     /* register v4l2_device */
     snprintf(up3dvideo_ctx.v4l2_dev.name, sizeof(up3dvideo_ctx.v4l2_dev.name), "%s-%03d", VID_MODULE_NAME, 0);
 	ret = v4l2_device_register(&pdev->dev, &up3dvideo_ctx.v4l2_dev);
@@ -100,7 +102,6 @@ static int up3d_video_pdrv_probe(struct platform_device *pdev)
 		return ret;
 	}
 	up3dvideo_ctx.v4l2_dev.release = my_v4l2_release;
-	printk(KERN_WARNING "my_vivid_probe.123");
 	
 	// capabilities信息
 	strcpy(up3dvideo_ctx.cap.driver, "up3d_driver"); // 驱动名称
@@ -132,18 +133,19 @@ static int up3d_video_pdrv_probe(struct platform_device *pdev)
     erron = video_register_device(vfd, VFL_TYPE_VIDEO, -1);
     if(erron)
     {
-        printk(KERN_WARNING "video_register_device erron:%d ", erron);
+        UP3D_DEBUG("video_register_device erron:%d ", erron);
         goto unreg_dev;
     }
 
-    printk(KERN_WARNING "my_vivid_probe.6");
+
+	trace_exit();
+
     return 0;
 
 unreg_dev:
 
-    printk(KERN_WARNING "my_vivid_probe error");
     v4l2_device_put(&up3dvideo_ctx.v4l2_dev);
-
+	trace_exit();
     return -ENOMEM;
 }
 static int up3d_video_pdrv_remove(struct platform_device *dev)
@@ -153,13 +155,15 @@ static int up3d_video_pdrv_remove(struct platform_device *dev)
     video_unregister_device(&up3dvideo_ctx.vid_cap_dev);
     vb2_queue_release(&up3dvideo_ctx.vb_queue);
     v4l2_device_put(&up3dvideo_ctx.v4l2_dev);
-
+	
+	trace_exit();
     return 0;
 }
 
 static void up3d_video_pdev_release(struct device *dev)
 {
 	trace_in();
+	trace_exit();
 }
 
 static struct platform_device up3d_video_pdev = {

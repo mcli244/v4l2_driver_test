@@ -28,6 +28,7 @@ static int up3d_g_fmt_vid_cap(struct file *file, void *fh,struct v4l2_format *f)
 	trace_in();
 	memcpy(f, &ctx->cur_v4l2_format, sizeof(struct v4l2_format));
 
+	trace_exit();
 	return 0;
 }
 
@@ -85,18 +86,22 @@ static int up3d_s_fmt_vid_cap(struct file *file, void *fh,struct v4l2_format *f)
 #define INPUT_DEVICE_NUMS	1
 static int up3d_enum_input(struct file *file, void *fh,struct v4l2_input *inp)
 {
+	trace_in();
 	if (inp->index >= INPUT_DEVICE_NUMS)	// 只支持一种输入设备，就是相机自身
 		return -EINVAL;	
  
 	inp->type = V4L2_INPUT_TYPE_CAMERA;
 	inp->std = V4L2_STD_525_60;
 	sprintf(inp->name, "Camera %u", inp->index);
+	trace_exit();
 	return 0;
 }
 
 /* 获取输入设备 */
 static int up3d_g_input(struct file *file, void *fh, unsigned int *i)
 {
+	trace_in();
+	trace_exit();
 	// struct vivid_dev *dev = video_drvdata(file);
 	// *i = dev->input;
 	return 0;
@@ -105,6 +110,8 @@ static int up3d_g_input(struct file *file, void *fh, unsigned int *i)
 /* 设置输入设备 */
 static int up3d_s_input(struct file *file, void *fh, unsigned int i)
 {
+	trace_in();
+	trace_exit();
 	// struct vivid_dev *dev = video_drvdata(file);
  
 	// if (i >= INPUT_DEVICE_NUMS)
@@ -130,6 +137,8 @@ static int up3d_querycap(struct file *file, void *fh, struct v4l2_capability *ca
 static int up3d_enum_frameintervals(struct file *file, void *fh,
 					  struct v4l2_frmivalenum *fival)
 {
+	trace_in();
+	trace_exit();
 	return 0;
 }
 
@@ -182,12 +191,12 @@ struct v4l2_ioctl_ops up3d_v4l2_ioctl_ops =
 	.vidioc_expbuf			= vb2_ioctl_expbuf,
 	.vidioc_streamon		= vb2_ioctl_streamon,
 	.vidioc_streamoff		= vb2_ioctl_streamoff,
-	.vidioc_overlay			= vb2_ioctl_over
-	int (*vidioc_overlay)(struct file *file, void *fh, unsigned int i);
-	int (*vidioc_g_fbuf)(struct file *file, void *fh,
-			     struct v4l2_framebuffer *a);
-	int (*vidioc_s_fbuf)(struct file *file, void *fh,
-			     const struct v4l2_framebuffer *a);
+	// .vidioc_overlay			= vb2_ioctl_over
+	// int (*vidioc_overlay)(struct file *file, void *fh, unsigned int i);
+	// int (*vidioc_g_fbuf)(struct file *file, void *fh,
+	// 		     struct v4l2_framebuffer *a);
+	// int (*vidioc_s_fbuf)(struct file *file, void *fh,
+	// 		     const struct v4l2_framebuffer *a);
 
 	/* 输入设备相关 */
 	.vidioc_enum_input		= up3d_enum_input,

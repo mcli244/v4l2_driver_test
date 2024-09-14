@@ -34,6 +34,7 @@
         "up3d_v4l2_fops.h": "c",
         "videobuf-core.h": "c",
         "v4l2-device.h": "c",
-        "printk.h": "c"
+        "printk.h": "c",
+        "kernel.h": "c"
     }
 }

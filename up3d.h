@@ -7,11 +7,16 @@
 #include <linux/printk.h>
 #include <linux/kernel.h>
 
+// 默认格式
+#define WIDTH_MAX	1920
+#define HEIGHT_MAX	1080
 
+#define WIDTH_DEF	640
+#define HEIGHT_DEF	360
 
 extern unsigned long long get_current_timestamp(void);
 
-#if 0
+#if 1
 #define trace_in()					printk(KERN_DEBUG "%s:%d|%s(%lld) in.", __FILE__, __LINE__,__FUNCTION__, get_current_timestamp())
 #define trace_exit()				printk(KERN_DEBUG "%s:%d|%s(%lld) exit.", __FILE__, __LINE__,__FUNCTION__, get_current_timestamp())
 #define UP3D_DEBUG(format, ...)  	printk(KERN_DEBUG "%s:%d|%s(%lld) " format , __FILE__, __LINE__,__FUNCTION__, get_current_timestamp(), ##__VA_ARGS__)
@@ -25,8 +30,6 @@ extern unsigned long long get_current_timestamp(void);
 struct up3d_vb2_buf {
 	struct vb2_v4l2_buffer vb;	// 必须在第一个
 	bool			prepared;
-	u32				vaddr;
-	size_t			size;
 	struct list_head list;
 };
 

@@ -65,7 +65,11 @@ static int up3d_open(struct file *file)
 static int up3d_release(struct file *file)
 {
 	int ret;
+
+	struct up3d_video_ctx *ctx = video_drvdata(file);
     trace_in();
+
+	vb2_queue_release(&ctx->vb_queue);
 
 	ret = vb2_fop_release(file);
 	UP3D_DEBUG("ret:%d", ret);

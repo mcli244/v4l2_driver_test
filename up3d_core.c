@@ -45,12 +45,7 @@
 #define VID_MODULE_NAME "up3d_vid"
 
 
-// 默认格式
-#define WIDTH_MAX	1920
-#define HEIGHT_MAX	1080
 
-#define WIDTH_DEF	640
-#define HEIGHT_DEF	360
 
 static struct up3d_video_ctx up3dvideo_ctx;
 
@@ -98,7 +93,8 @@ static int up3d_video_pdrv_probe(struct platform_device *pdev)
     /* register v4l2_device */
     snprintf(up3dvideo_ctx.v4l2_dev.name, sizeof(up3dvideo_ctx.v4l2_dev.name), "%s-%03d", VID_MODULE_NAME, 0);
 	ret = v4l2_device_register(&pdev->dev, &up3dvideo_ctx.v4l2_dev);
-	if (ret) {
+	if (ret < 0) {
+		UP3D_DEBUG("v4l2_device_register failed ret:%d ", ret);
 		return ret;
 	}
 	up3dvideo_ctx.v4l2_dev.release = my_v4l2_release;
@@ -145,6 +141,7 @@ static int up3d_video_pdrv_probe(struct platform_device *pdev)
 unreg_dev:
 
     v4l2_device_put(&up3dvideo_ctx.v4l2_dev);
+
 	trace_exit();
     return -ENOMEM;
 }
@@ -153,7 +150,7 @@ static int up3d_video_pdrv_remove(struct platform_device *dev)
     trace_in();
 
     video_unregister_device(&up3dvideo_ctx.vid_cap_dev);
-    vb2_queue_release(&up3dvideo_ctx.vb_queue);
+    
     v4l2_device_put(&up3dvideo_ctx.v4l2_dev);
 	
 	trace_exit();
@@ -185,12 +182,18 @@ static int __init up3d_video_610_init(void)
     trace_in();
 
 	ret = platform_device_register(&up3d_video_pdev);
-	if (ret)
+	if (ret < 0)
+	{
+		UP3D_DEBUG("platform_device_register failed ret:%d", ret);
 		return ret;
-
+	}
+		
 	ret = platform_driver_register(&up3d_video_pdrv);
-	if (ret)
+	if (ret < 0)
+	{
+		UP3D_DEBUG("platform_driver_register failed ret:%d", ret);
 		platform_device_unregister(&up3d_video_pdev);
+	}
 
 	trace_exit();
 	return ret;

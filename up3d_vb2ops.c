@@ -6,10 +6,12 @@
 
 static struct timer_list up3d_timer;
 static struct up3d_video_ctx *_g_ctx;
+static int up3d_timer_stop = 0;
 
 static void up3d_timer_function(struct timer_list *timer)
 {
 	int x,y;
+	uint8_t *p;
     struct up3d_vb2_buf *up3d_vb;
 	// int flags;
 	static uint32_t sequence = 0;
@@ -24,10 +26,10 @@ static void up3d_timer_function(struct timer_list *timer)
 		up3d_vb = list_entry(_g_ctx->vb_queue_active.next, struct up3d_vb2_buf, list);
 
 		// 填充数据
-		UP3D_DEBUG("vb2_plane_vaddr(&buf->vb.vb2_buf, 0):0x%x --- 0x%x", vb2_plane_vaddr(&up3d_vb->vb.vb2_buf, 0), up3d_vb->vb.vb2_buf.planes[0].mem_priv);
+		// UP3D_DEBUG("vb2_plane_vaddr(&buf->vb.vb2_buf, 0):0x%x --- 0x%x", vb2_plane_vaddr(&up3d_vb->vb.vb2_buf, 0), up3d_vb->vb.vb2_buf.planes[0].mem_priv);
 		// memset(up3d_vb->vb.vb2_buf.planes[0].mem_priv, 0xff, _g_ctx->cur_v4l2_format.fmt.pix.sizeimage);
 		
-		uint8_t *p = (uint8_t *)vb2_plane_vaddr(&up3d_vb->vb.vb2_buf, 0);
+		p = (uint8_t *)vb2_plane_vaddr(&up3d_vb->vb.vb2_buf, 0);
 
 		for(x=0; x<_g_ctx->cur_v4l2_format.fmt.pix.width; x++)
 		{
@@ -55,7 +57,11 @@ static void up3d_timer_function(struct timer_list *timer)
     /* 3. 修改timer的超时时间 : 30fps, 1秒里有30帧数据
      *    每1/30 秒产生一帧数据
      */
-    mod_timer(timer, jiffies + HZ/30);
+	if(0 == up3d_timer_stop)
+	{
+		mod_timer(timer, jiffies + HZ/30);
+	}
+    	
 	trace_exit();
 }
 
@@ -106,14 +112,8 @@ static int up3d_buf_prepare(struct vb2_buffer *vb)
 
 	if (!buf->prepared) {
 		/* Get memory addresses */
-		buf->vaddr = vb2_plane_vaddr(&buf->vb.vb2_buf, 0);
-		buf->size = vb2_plane_size(&buf->vb.vb2_buf, 0);
 		buf->prepared = true;
-
-		vb2_set_plane_payload(&buf->vb.vb2_buf, 0, buf->size);
-
-		dev_dbg(ctx->dev, "buffer[%d] addr=%pad size=%zu\n",
-			vb->index, &buf->vaddr, buf->size);
+		vb2_set_plane_payload(&buf->vb.vb2_buf, 0, vb2_plane_size(&buf->vb.vb2_buf, 0));
 	}
 
 	// 检查缓冲区虚拟地址是否存在和payload是否正确设置
@@ -165,8 +165,9 @@ static int up3d_start_streaming(struct vb2_queue *q, unsigned int count)
 	up3d_timer.function = up3d_timer_function;
 	
 	_g_ctx = vb2_get_drv_priv(q);
-	UP3D_DEBUG("_g_ctx:%p 0x%x", _g_ctx, _g_ctx);
+	UP3D_DEBUG("_g_ctx:%p", _g_ctx);
 
+	up3d_timer_stop = 0;
 	add_timer(&up3d_timer);
 
 	trace_exit();
@@ -179,23 +180,10 @@ static int up3d_start_streaming(struct vb2_queue *q, unsigned int count)
  */
 static void up3d_stop_streaming(struct vb2_queue *q)
 {
-	struct up3d_video_ctx *ctx = vb2_get_drv_priv(q);
-	unsigned long flags;
-
 	trace_in();
-
-	#if 0
 	// TODO:控制硬件停止采集
-	spin_lock_irqsave(&ctx->vb_queue_lock, flags);
-	while (!list_empty(&ctx->vb_queue_active)) {
-		struct up3d_vb2_buf *buf = list_entry(ctx->vb_queue_active.next, struct up3d_vb2_buf, list);
-		list_del(&buf->list);
-		vb2_buffer_done(&buf->vb.vb2_buf, VB2_BUF_STATE_ERROR);
-	}
-	spin_unlock_irqrestore(&ctx->vb_queue_lock, flags);
-
-	#endif
-	del_timer(&up3d_timer);
+	// del_timer(&up3d_timer);
+	up3d_timer_stop = 1;
 	trace_exit();
 }
 
@@ -213,14 +201,12 @@ static void up3d_wait_finish(struct vb2_queue *q)
 
 static int up3d_buf_init(struct vb2_buffer *vb)
 {
-	trace_in();
-
 	struct vb2_v4l2_buffer *vbuf = to_vb2_v4l2_buffer(vb);
 	struct up3d_vb2_buf *buf = container_of(vbuf, struct up3d_vb2_buf, vb);
 
+	trace_in();
+
 	INIT_LIST_HEAD(&buf->list);
-
-
 	UP3D_DEBUG("vb->vb2_queue:%p", vb->vb2_queue);
 	UP3D_DEBUG("vb->index:%d type:0x%x memory:0x%x num_planes:%d timestamp:%lld state:%d", 
 		vb->index, vb->type, vb->memory, vb->num_planes, vb->timestamp, vb->state);

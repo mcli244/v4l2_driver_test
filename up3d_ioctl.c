@@ -150,9 +150,15 @@ static int up3d_enum_framesizes(struct file *file, void *fh,
 	
 	trace_in();
 	
-	if (fsize->index > 0)	// 目前每种格式只支持一种分辨率
-		return -EINVAL;
+	UP3D_DEBUG("index:%d fsize->pixel_format:0x%x type:0x%x", 
+			fsize->index, fsize->pixel_format, fsize->type);
 
+	if (fsize->index > 0)	// 目前每种格式只支持一种分辨率
+	{
+		UP3D_DEBUG("fsize->index:%d", fsize->index);
+		return -EINVAL;
+	}
+		
 	for(index=0; index<ctx->fmt_lists_cnt; index++)
 	{
 		if(fsize->pixel_format == ctx->fmt_lists[index].pixel_format)
@@ -160,10 +166,24 @@ static int up3d_enum_framesizes(struct file *file, void *fh,
 	}
 
 	if(index >= ctx->fmt_lists_cnt)
+	{
+		UP3D_DEBUG("index:%d ctx->fmt_lists_cnt:%d fsize->pixel_format:0x%x", 
+			fsize->index, ctx->fmt_lists_cnt, fsize->pixel_format);
 		return -EINVAL;
+	}
 	
+	#if 1
+	fsize->type = V4L2_FRMSIZE_TYPE_DISCRETE;	// 这个用于区分联合体的类型 discrete、stepwise
 	fsize->discrete.width = ctx->fmt_lists[index].framesize.width;
 	fsize->discrete.height = ctx->fmt_lists[index].framesize.height;
+	#else
+	fsize->type = V4L2_FRMSIZE_TYPE_CONTINUOUS;
+	fsize->stepwise.min_width = 0;
+	fsize->stepwise.min_height = 0;
+	fsize->stepwise.max_width = WIDTH_MAX;
+	fsize->stepwise.max_height = HEIGHT_MAX;
+	fsize->stepwise.step_width = fsize->stepwise.step_height = 1;
+	#endif
 
 	trace_exit();
 

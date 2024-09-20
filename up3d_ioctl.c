@@ -1,6 +1,14 @@
 #include "up3d_ioctl.h"
 #include "up3d.h"
 
+static const struct v4l2_frmsize_discrete rgb24_sizes[] = {
+	{  320, 180 },
+	{  640, 360 },
+	{  640, 480 },
+	{ 1280, 720 },
+	{ 1920, 1080 },
+	{ 3840, 2160 },
+};
 
 
 /* 列举支持哪种格式 */
@@ -153,12 +161,6 @@ static int up3d_enum_framesizes(struct file *file, void *fh,
 	UP3D_DEBUG("index:%d fsize->pixel_format:0x%x type:0x%x", 
 			fsize->index, fsize->pixel_format, fsize->type);
 
-	if (fsize->index > 0)	// 目前每种格式只支持一种分辨率
-	{
-		UP3D_DEBUG("fsize->index:%d", fsize->index);
-		return -EINVAL;
-	}
-		
 	for(index=0; index<ctx->fmt_lists_cnt; index++)
 	{
 		if(fsize->pixel_format == ctx->fmt_lists[index].pixel_format)
@@ -171,19 +173,27 @@ static int up3d_enum_framesizes(struct file *file, void *fh,
 			fsize->index, ctx->fmt_lists_cnt, fsize->pixel_format);
 		return -EINVAL;
 	}
-	
-	#if 1
-	fsize->type = V4L2_FRMSIZE_TYPE_DISCRETE;	// 这个用于区分联合体的类型 discrete、stepwise
-	fsize->discrete.width = ctx->fmt_lists[index].framesize.width;
-	fsize->discrete.height = ctx->fmt_lists[index].framesize.height;
-	#else
-	fsize->type = V4L2_FRMSIZE_TYPE_CONTINUOUS;
-	fsize->stepwise.min_width = 0;
-	fsize->stepwise.min_height = 0;
-	fsize->stepwise.max_width = WIDTH_MAX;
-	fsize->stepwise.max_height = HEIGHT_MAX;
-	fsize->stepwise.step_width = fsize->stepwise.step_height = 1;
-	#endif
+
+	switch(ctx->fmt_lists[index].pixel_format)
+	{
+		case V4L2_PIX_FMT_RGB24:
+			if(fsize->index >= ARRAY_SIZE(rgb24_sizes))
+				return -EINVAL;
+			fsize->type = V4L2_FRMSIZE_TYPE_DISCRETE;	// 这个用于区分联合体的类型 discrete、stepwise
+			fsize->discrete = rgb24_sizes[fsize->index];	// c99支持这种结构体赋值方式
+			break;
+		case V4L2_PIX_FMT_RGB565:
+		case V4L2_PIX_FMT_YUYV:
+			if (fsize->index > 0)	// 目前每种格式只支持一种分辨率
+				return -EINVAL;
+			fsize->type = V4L2_FRMSIZE_TYPE_DISCRETE;	// 这个用于区分联合体的类型 discrete、stepwise
+			fsize->discrete.width = ctx->fmt_lists[index].framesize.width;
+			fsize->discrete.height = ctx->fmt_lists[index].framesize.height;
+			break;
+		default:
+			return -EINVAL;
+			break;
+	}
 
 	trace_exit();
 

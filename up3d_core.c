@@ -71,6 +71,13 @@ struct up3d_fmtdesc up3d_fmtdesc_lists[]=
 		.bytes_per_pixel = 1,
 		.framesize.width = WIDTH_DEF,
 		.framesize.height = HEIGHT_DEF,
+	},
+	{
+		.description = "8bit  GREY",
+		.pixel_format = V4L2_PIX_FMT_GREY,
+		.bytes_per_pixel = 1,
+		.framesize.width = 416,
+		.framesize.height = 480,
 	}
 };
 

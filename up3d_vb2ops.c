@@ -31,17 +31,56 @@ static void up3d_timer_function(struct timer_list *timer)
 		
 		p = (uint8_t *)vb2_plane_vaddr(&up3d_vb->vb.vb2_buf, 0);
 
-		for(x=0; x<_g_ctx->cur_v4l2_format.fmt.pix.width; x++)
+		if(_g_ctx->cur_v4l2_format.fmt.pix.pixelformat == V4L2_PIX_FMT_YUYV)
 		{
-			for(y=0; y<_g_ctx->cur_v4l2_format.fmt.pix.height; y++)
-			{	
-				// RGB
-				*(p+0) = 0x00;
-				*(p+1) = (sequence*10) % 0xff;
-				*(p+2) = 0x00;
-				p += 3;
+			for(x=0; x<_g_ctx->cur_v4l2_format.fmt.pix.width; x++)
+			{
+				for(y=0; y<_g_ctx->cur_v4l2_format.fmt.pix.height; y++)
+				{	
+					// YUYV
+					*(p+0) = 0x00;
+					*(p+1) = (sequence*10) % 0xff;
+					*(p+2) = 0x00;
+					*(p+3) = 0xff;
+					p += 4;
+				}
 			}
 		}
+		else if(_g_ctx->cur_v4l2_format.fmt.pix.pixelformat == V4L2_PIX_FMT_RGB24)
+		{
+			for(x=0; x<_g_ctx->cur_v4l2_format.fmt.pix.width; x++)
+			{
+				for(y=0; y<_g_ctx->cur_v4l2_format.fmt.pix.height; y++)
+				{	
+					// RGB
+					*(p+0) = 0x00;
+					*(p+1) = (sequence*10) % 0xff;
+					*(p+2) = 0x00;
+					p += 3;
+				}
+			}
+		}
+		else if(_g_ctx->cur_v4l2_format.fmt.pix.pixelformat == V4L2_PIX_FMT_GREY)
+		{
+			for(x=0; x<_g_ctx->cur_v4l2_format.fmt.pix.width; x++)
+			{
+				for(y=0; y<_g_ctx->cur_v4l2_format.fmt.pix.height; y++)
+				{	
+					// GREY
+					if((x/10)%2)
+						*(p+0) = 0xff;
+					else
+						*(p+0) = 0x00;
+					p += 1;
+				}
+			}
+		}
+		else
+		{
+			// 其他格式
+			// memset(, 0xff, _g_ctx->cur_v4l2_format.fmt.pix.sizeimage);
+		}
+		
 
 		// memset(, 0xff, _g_ctx->cur_v4l2_format.fmt.pix.sizeimage);
 		up3d_vb->vb.vb2_buf.timestamp = ktime_get_ns();

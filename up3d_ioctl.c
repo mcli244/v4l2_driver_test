@@ -190,6 +190,13 @@ static int up3d_enum_framesizes(struct file *file, void *fh,
 			fsize->discrete.width = ctx->fmt_lists[index].framesize.width;
 			fsize->discrete.height = ctx->fmt_lists[index].framesize.height;
 			break;
+		case V4L2_PIX_FMT_GREY:
+			if (fsize->index > 0)	// 目前这种种格式只支持一种分辨率
+				return -EINVAL;
+			fsize->type = V4L2_FRMSIZE_TYPE_DISCRETE;	// 这个用于区分联合体的类型 discrete、stepwise
+			fsize->discrete.width = ctx->fmt_lists[index].framesize.width;
+			fsize->discrete.height = ctx->fmt_lists[index].framesize.height;
+			break;
 		default:
 			return -EINVAL;
 			break;

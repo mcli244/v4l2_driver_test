@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: GPL-2.0
-KERN_DIR = /home/uisrc/workspace/pack/ext_source/kernel-source
+KERN_DIR = /home/up3d/workspace/exDisk/linux-xlnx
 
 all:
 	make ARCH=arm CROSS_COMPILE=arm-linux-gnueabihf- -C $(KERN_DIR) M=`pwd` modules 

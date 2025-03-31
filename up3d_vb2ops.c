@@ -4,19 +4,21 @@
 #include <media/videobuf-core.h>
 #include <media/videobuf-vmalloc.h>
 
-static struct timer_list up3d_timer;
 static struct up3d_video_ctx *_g_ctx;
-static int up3d_timer_stop = 0;
 
-static void up3d_timer_function(struct timer_list *timer)
+#define UP3D_STA_STOP 0
+#define UP3D_STA_RUN 1
+#define UP3D_STA_PAUSE 2
+static int up3d_timer_stop = UP3D_STA_STOP;
+
+static void _up3d_vb2_fill(void)
 {
 	int x,y;
 	uint8_t *p;
-	uint8_t flag = 0;
-	uint8_t sale = 0;
     struct up3d_vb2_buf *up3d_vb;
 	// int flags;
 	static uint32_t sequence = 0;
+	
     
 	trace_in();
     /* 1. 构造数据: 从队列头部取出第1个videobuf, 填充数据
@@ -64,23 +66,14 @@ static void up3d_timer_function(struct timer_list *timer)
 		}
 		else if(_g_ctx->cur_v4l2_format.fmt.pix.pixelformat == V4L2_PIX_FMT_GREY)
 		{
-			sale = _g_ctx->cur_v4l2_format.fmt.pix.width/10;
-			for(y=0; y<_g_ctx->cur_v4l2_format.fmt.pix.height; y++)
+			if(_g_ctx->ddr_addr)
+			{	
+				UP3D_DEBUG("memcpy from DDR address: 0x%lx sizeimage:%d\n", (unsigned long)ddr_addr, _g_ctx->cur_v4l2_format.fmt.pix.sizeimage);
+				memcpy(p, _g_ctx->ddr_addr + 8, _g_ctx->cur_v4l2_format.fmt.pix.sizeimage);
+			}
+			else
 			{
-				flag = 0;
-				for(x=0; x<_g_ctx->cur_v4l2_format.fmt.pix.width; x++)
-				{
-						// GREY
-						if((x%sale) == 0)
-							flag = !flag;
-
-						if(flag)
-							*(p+0) = 0xff;
-						else
-							*(p+0) = 0x00;
-							
-						p += 1;
-				}
+				UP3D_DEBUG("ddr_addr is NULL\n");
 			}
 		}
 		else
@@ -101,15 +94,12 @@ static void up3d_timer_function(struct timer_list *timer)
 	}
 	// spin_unlock_irqrestore(&_g_ctx->vb_queue_lock, flags);
 
-    /* 3. 修改timer的超时时间 : 30fps, 1秒里有30帧数据
-     *    每1/30 秒产生一帧数据
-     */
-	if(0 == up3d_timer_stop)
-	{
-		mod_timer(timer, jiffies + HZ/30);
-	}
-    	
-	trace_exit();
+}
+
+static irqreturn_t pl_cap_intc_irq_handler(int irq, void *dev_id)
+{
+	_up3d_vb2_fill();
+	return IRQ_HANDLED;
 }
 
 /** 
@@ -126,7 +116,6 @@ static int up3d_queue_setup(struct vb2_queue *q,
 
 	*num_planes = 1;	// 目前只支持单层，设为1
 	sizes[0] = ctx->cur_v4l2_format.fmt.pix.sizeimage;
-	// TODO:num_buffers\alloc_devs待研究
 
 	trace_exit();
 
@@ -203,20 +192,31 @@ static void up3d_buf_queue(struct vb2_buffer *vb)
 
 static int up3d_start_streaming(struct vb2_queue *q, unsigned int count)
 {
-	trace_in();
-	
-	// TODO:控制硬件开始采集 这里用定时器模拟数据产生
+	struct up3d_video_ctx *ctx = vb2_get_drv_priv(q);
 
-	// 测试定时器
-	up3d_timer.expires = jiffies + 5;
-	up3d_timer.function = up3d_timer_function;
-	
+	trace_in();
+
 	_g_ctx = vb2_get_drv_priv(q);
 	UP3D_DEBUG("_g_ctx:%p", _g_ctx);
 
-	up3d_timer_stop = 0;
-	add_timer(&up3d_timer);
-
+	if(up3d_timer_stop == UP3D_STA_PAUSE)
+	{
+		enable_irq(ctx->irq);
+		up3d_timer_stop = UP3D_STA_RUN;
+	}
+	else if(up3d_timer_stop == UP3D_STA_STOP)
+	{
+		/* 申请中断 */
+		if (devm_request_irq(ctx->dev, ctx->irq, pl_cap_intc_irq_handler, IRQF_TRIGGER_RISING, "pl_cap_intc", NULL)) {
+			dev_err(ctx->dev, "Failed to request IRQ\n");
+			return -EINVAL;
+		}
+		up3d_timer_stop = UP3D_STA_RUN;
+	}
+	else{
+		// do nothing
+	}
+	
 	trace_exit();
 	return 0;
 }
@@ -227,10 +227,23 @@ static int up3d_start_streaming(struct vb2_queue *q, unsigned int count)
  */
 static void up3d_stop_streaming(struct vb2_queue *q)
 {
+	struct up3d_vb2_buf *up3d_vb, *tmp;
+	struct up3d_video_ctx *ctx = vb2_get_drv_priv(q);
+
 	trace_in();
-	// TODO:控制硬件停止采集
-	// del_timer(&up3d_timer);
-	up3d_timer_stop = 1;
+
+	if(up3d_timer_stop == UP3D_STA_RUN)
+	{
+		disable_irq_nosync(ctx->irq);
+		up3d_timer_stop = UP3D_STA_PAUSE;	// TODO: 这里没有完全释放IRQ，只是暂停了中断，释放中断放到remove中
+
+		// 关闭流时，释放所有仍然处于 ACTIVE 状态的 buffer
+		list_for_each_entry_safe(up3d_vb, tmp, &_g_ctx->vb_queue_active, list) {
+				list_del(&up3d_vb->list);
+				vb2_buffer_done(&up3d_vb->vb.vb2_buf, VB2_BUF_STATE_ERROR);
+			}
+	}
+	
 	trace_exit();
 }
 

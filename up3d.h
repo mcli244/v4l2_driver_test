@@ -16,7 +16,7 @@
 
 extern unsigned long long get_current_timestamp(void);
 
-#if 1
+#if 0
 #define trace_in()					printk(KERN_DEBUG "%s:%d|%s(%lld) in.", __FILE__, __LINE__,__FUNCTION__, get_current_timestamp())
 #define trace_exit()				printk(KERN_DEBUG "%s:%d|%s(%lld) exit.", __FILE__, __LINE__,__FUNCTION__, get_current_timestamp())
 #define UP3D_DEBUG(format, ...)  	printk(KERN_DEBUG "%s:%d|%s(%lld) " format , __FILE__, __LINE__,__FUNCTION__, get_current_timestamp(), ##__VA_ARGS__)
@@ -69,6 +69,9 @@ struct up3d_video_ctx
 	uint32_t	height_max;
 	uint32_t	width_def;
 	uint32_t	height_def;
+
+	int 		irq;
+	void 		*ddr_addr;
 };
 
 

@@ -37,6 +37,10 @@
 #include <media/v4l2-dv-timings.h>
 #include <media/v4l2-ioctl.h>
 #include <media/v4l2-fh.h>
+#include <linux/of.h>
+#include <linux/of_address.h>  // 关键的头文件
+#include <linux/io.h>          // 如果要做 ioremap，需要这个
+#include <linux/of_reserved_mem.h>
 
 #include "up3d.h"
 #include "up3d_ioctl.h"
@@ -87,6 +91,64 @@ static void my_v4l2_release(struct v4l2_device *v4l2_dev)
 	trace_exit();
 }
 
+static int _up3d_reserved_memory_by_dtb(struct up3d_video_ctx *ctx, struct platform_device *pdev)
+{
+	/*
+		reserved-memory {  // ✅ 必须在根节点下
+			#address-cells = <1>;
+			#size-cells = <1>;
+			ranges;
+
+			reserved: buffer@10000000 {
+				compatible = "shared-dma-pool";
+				reg = <0x10000000 0x01000000>;  // 物理地址 0x10000000，大小 16MB
+				no-map;
+			};
+		};
+
+		pl_cap_intc: cap-intc@0 {
+			compatible = "up3d610,cap-intc";
+			status = "okay";
+			interrupt-names = "pl-cap-intc";
+			interrupt-parent = <&intc>;
+			interrupts = <0 32 IRQ_TYPE_EDGE_RISING>;
+			memory-region = <&reserved>;
+		};
+	*/
+	struct resource res;
+	phys_addr_t phys_addr;
+	size_t size;
+
+	struct device *dev = &pdev->dev;
+	struct device_node *np = of_parse_phandle(dev->of_node, "memory-region", 0);
+	if (!np) {
+		dev_err(dev, "Failed to parse memory-region\n");
+		return -ENOMEM;
+	}
+
+	if (of_address_to_resource(np, 0, &res)) {
+		dev_err(dev, "Failed to get reserved memory resource\n");
+		of_node_put(np);
+		return -EINVAL;
+	}
+
+	phys_addr = res.start;
+	size = resource_size(&res);
+
+	dev_info(dev, "Reserved memory at phys_addr: 0x%llx, size: 0x%zx\n",
+			(unsigned long long)phys_addr, size);
+
+	ctx->ddr_addr = memremap(phys_addr, size, MEMREMAP_WB);
+	if (!ctx->ddr_addr) {
+		dev_err(dev, "Failed to memremap DDR address\n");
+		of_node_put(np);
+		return -ENOMEM;
+	}
+
+	of_node_put(np);  // 释放 device_node 结构体
+
+	return 0;
+}
 
 static int up3d_video_pdrv_probe(struct platform_device *pdev)
 {
@@ -96,13 +158,29 @@ static int up3d_video_pdrv_probe(struct platform_device *pdev)
 
 	trace_in();
 
+	memset(&up3dvideo_ctx, 0, sizeof(up3dvideo_ctx));
+
+	up3dvideo_ctx.irq = platform_get_irq(pdev , 0);
+    if (up3dvideo_ctx.irq < 0) {
+        dev_err(&pdev->dev, "Failed to get IRQ\n");
+        return up3dvideo_ctx.irq;
+    }
+
+    dev_info(&pdev->dev, "PL CAP INTC IRQ: %d\n", up3dvideo_ctx.irq);
+
+	if(_up3d_reserved_memory_by_dtb(&up3dvideo_ctx, pdev) < 0)
+	{
+		printk(KERN_ERR "Failed to memremap DDR address\n");
+		goto irq_ext;
+	}
+
 	up3dvideo_ctx.dev = &pdev->dev;
     /* register v4l2_device */
     snprintf(up3dvideo_ctx.v4l2_dev.name, sizeof(up3dvideo_ctx.v4l2_dev.name), "%s-%03d", VID_MODULE_NAME, 0);
 	ret = v4l2_device_register(&pdev->dev, &up3dvideo_ctx.v4l2_dev);
 	if (ret < 0) {
 		UP3D_DEBUG("v4l2_device_register failed ret:%d ", ret);
-		return ret;
+		goto reserved_memory_free_ext;
 	}
 	up3dvideo_ctx.v4l2_dev.release = my_v4l2_release;
 	
@@ -149,12 +227,22 @@ unreg_dev:
 
     v4l2_device_put(&up3dvideo_ctx.v4l2_dev);
 
+reserved_memory_free_ext:
+	memunmap(up3dvideo_ctx.ddr_addr);
+
+irq_ext:
+	devm_free_irq(&pdev->dev, platform_get_irq(pdev, 0), NULL);
+
 	trace_exit();
     return -ENOMEM;
 }
 static int up3d_video_pdrv_remove(struct platform_device *dev)
 {
     trace_in();
+
+	memunmap(up3dvideo_ctx.ddr_addr);
+
+	devm_free_irq(&dev->dev, platform_get_irq(dev, 0), NULL);
 
     video_unregister_device(&up3dvideo_ctx.vid_cap_dev);
     
@@ -164,58 +252,23 @@ static int up3d_video_pdrv_remove(struct platform_device *dev)
     return 0;
 }
 
-static void up3d_video_pdev_release(struct device *dev)
-{
-	trace_in();
-	trace_exit();
-}
+static const struct of_device_id pl_cap_intc_of_match[] = {
+    { .compatible = "up3d610,cap-intc" },
+    { /* sentinel */ }
+};
+MODULE_DEVICE_TABLE(of, pl_cap_intc_of_match);
 
-static struct platform_device up3d_video_pdev = {
-	.name		= "up3d_video_610",
-	.dev.release	= up3d_video_pdev_release,
+static struct platform_driver pl_cap_intc_driver = {
+    .probe = up3d_video_pdrv_probe,
+    .remove = up3d_video_pdrv_remove,
+    .driver = {
+        .name = "up3d_video_610",
+        .of_match_table = pl_cap_intc_of_match,
+    },
 };
 
-static struct platform_driver up3d_video_pdrv = {
-	.probe		= up3d_video_pdrv_probe,
-	.remove		= up3d_video_pdrv_remove,
-	.driver		= {
-		.name	= "up3d_video_610",
-	},
-};
+module_platform_driver(pl_cap_intc_driver);
 
-static int __init up3d_video_610_init(void)
-{
-	int ret;
-    trace_in();
-
-	ret = platform_device_register(&up3d_video_pdev);
-	if (ret < 0)
-	{
-		UP3D_DEBUG("platform_device_register failed ret:%d", ret);
-		return ret;
-	}
-		
-	ret = platform_driver_register(&up3d_video_pdrv);
-	if (ret < 0)
-	{
-		UP3D_DEBUG("platform_driver_register failed ret:%d", ret);
-		platform_device_unregister(&up3d_video_pdev);
-	}
-
-	trace_exit();
-	return ret;
-}
-
-static void __exit up3d_video_610_exit(void)
-{
-    trace_in();
-	platform_driver_unregister(&up3d_video_pdrv);
-	platform_device_unregister(&up3d_video_pdev);
-	trace_exit();
-}
-
-module_init(up3d_video_610_init);
-module_exit(up3d_video_610_exit);
-MODULE_DESCRIPTION("Up3d 610 Video Driver");
-MODULE_AUTHOR("CoreyLee");
+MODULE_AUTHOR("CoreyLee <lixiangjun@up3dtech.com>");
+MODULE_DESCRIPTION("Up3d610w Video Driver");
 MODULE_LICENSE("GPL");

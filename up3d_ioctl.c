@@ -142,13 +142,13 @@ static int up3d_querycap(struct file *file, void *fh, struct v4l2_capability *ca
 	return 0;
 }
 
-static int up3d_enum_frameintervals(struct file *file, void *fh,
-					  struct v4l2_frmivalenum *fival)
-{
-	trace_in();
-	trace_exit();
-	return 0;
-}
+// static int up3d_enum_frameintervals(struct file *file, void *fh,
+// 					  struct v4l2_frmivalenum *fival)
+// {
+// 	trace_in();
+// 	trace_exit();
+// 	return 0;
+// }
 
 static int up3d_enum_framesizes(struct file *file, void *fh,
 				      struct v4l2_frmsizeenum *fsize)

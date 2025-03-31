@@ -12,6 +12,8 @@ static void up3d_timer_function(struct timer_list *timer)
 {
 	int x,y;
 	uint8_t *p;
+	uint8_t flag = 0;
+	uint8_t sale = 0;
     struct up3d_vb2_buf *up3d_vb;
 	// int flags;
 	static uint32_t sequence = 0;
@@ -62,16 +64,22 @@ static void up3d_timer_function(struct timer_list *timer)
 		}
 		else if(_g_ctx->cur_v4l2_format.fmt.pix.pixelformat == V4L2_PIX_FMT_GREY)
 		{
-			for(x=0; x<_g_ctx->cur_v4l2_format.fmt.pix.width; x++)
+			sale = _g_ctx->cur_v4l2_format.fmt.pix.width/10;
+			for(y=0; y<_g_ctx->cur_v4l2_format.fmt.pix.height; y++)
 			{
-				for(y=0; y<_g_ctx->cur_v4l2_format.fmt.pix.height; y++)
-				{	
-					// GREY
-					if((x/10)%2)
-						*(p+0) = 0xff;
-					else
-						*(p+0) = 0x00;
-					p += 1;
+				flag = 0;
+				for(x=0; x<_g_ctx->cur_v4l2_format.fmt.pix.width; x++)
+				{
+						// GREY
+						if((x%sale) == 0)
+							flag = !flag;
+
+						if(flag)
+							*(p+0) = 0xff;
+						else
+							*(p+0) = 0x00;
+							
+						p += 1;
 				}
 			}
 		}

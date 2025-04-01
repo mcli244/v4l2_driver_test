@@ -4,14 +4,14 @@
 #include <media/videobuf-core.h>
 #include <media/videobuf-vmalloc.h>
 
-static struct up3d_video_ctx *_g_ctx;
+// static struct up3d_video_ctx *_g_ctx;
 
 #define UP3D_STA_STOP 0
 #define UP3D_STA_RUN 1
 #define UP3D_STA_PAUSE 2
 static int up3d_timer_stop = UP3D_STA_STOP;
 
-static void _up3d_vb2_fill(void)
+static void _up3d_vb2_fill(struct up3d_video_ctx *_g_ctx)
 {
 	int x,y;
 	uint8_t *p;
@@ -98,7 +98,15 @@ static void _up3d_vb2_fill(void)
 
 static irqreturn_t pl_cap_intc_irq_handler(int irq, void *dev_id)
 {
-	_up3d_vb2_fill();
+	struct up3d_video_ctx *ctx = (struct up3d_video_ctx *)dev_id;
+
+	if(ctx == NULL)
+	{
+		printk(KERN_ERR "ctx is NULL\n");
+		return IRQ_HANDLED;
+	}
+
+	_up3d_vb2_fill(ctx);
 	return IRQ_HANDLED;
 }
 
@@ -196,9 +204,6 @@ static int up3d_start_streaming(struct vb2_queue *q, unsigned int count)
 
 	trace_in();
 
-	_g_ctx = vb2_get_drv_priv(q);
-	UP3D_DEBUG("_g_ctx:%p", _g_ctx);
-
 	if(up3d_timer_stop == UP3D_STA_PAUSE)
 	{
 		enable_irq(ctx->irq);
@@ -207,7 +212,7 @@ static int up3d_start_streaming(struct vb2_queue *q, unsigned int count)
 	else if(up3d_timer_stop == UP3D_STA_STOP)
 	{
 		/* 申请中断 */
-		if (devm_request_irq(ctx->dev, ctx->irq, pl_cap_intc_irq_handler, IRQF_TRIGGER_RISING, "pl_cap_intc", NULL)) {
+		if (devm_request_irq(ctx->dev, ctx->irq, pl_cap_intc_irq_handler, IRQF_TRIGGER_RISING, "pl_cap_intc", ctx)) {
 			dev_err(ctx->dev, "Failed to request IRQ\n");
 			return -EINVAL;
 		}
@@ -238,7 +243,7 @@ static void up3d_stop_streaming(struct vb2_queue *q)
 		up3d_timer_stop = UP3D_STA_PAUSE;	// TODO: 这里没有完全释放IRQ，只是暂停了中断，释放中断放到remove中
 
 		// 关闭流时，释放所有仍然处于 ACTIVE 状态的 buffer
-		list_for_each_entry_safe(up3d_vb, tmp, &_g_ctx->vb_queue_active, list) {
+		list_for_each_entry_safe(up3d_vb, tmp, &ctx->vb_queue_active, list) {
 				list_del(&up3d_vb->list);
 				vb2_buffer_done(&up3d_vb->vb.vb2_buf, VB2_BUF_STATE_ERROR);
 			}

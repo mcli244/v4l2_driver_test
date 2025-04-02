@@ -72,6 +72,9 @@ struct up3d_video_ctx
 
 	int 		irq;
 	void 		*ddr_addr;
+
+	/* controls */
+	int 						input_brightness;
 };
 
 

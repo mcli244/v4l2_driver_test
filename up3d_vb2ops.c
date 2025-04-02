@@ -68,8 +68,7 @@ static void _up3d_vb2_fill(struct up3d_video_ctx *_g_ctx)
 		{
 			if(_g_ctx->ddr_addr)
 			{	
-				UP3D_DEBUG("memcpy from DDR address: 0x%lx sizeimage:%d\n", (unsigned long)ddr_addr, _g_ctx->cur_v4l2_format.fmt.pix.sizeimage);
-				memcpy(p, _g_ctx->ddr_addr + 8, _g_ctx->cur_v4l2_format.fmt.pix.sizeimage);
+				memcpy(p, _g_ctx->ddr_addr, _g_ctx->cur_v4l2_format.fmt.pix.sizeimage);
 			}
 			else
 			{

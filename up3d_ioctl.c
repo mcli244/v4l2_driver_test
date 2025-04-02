@@ -207,6 +207,41 @@ static int up3d_enum_framesizes(struct file *file, void *fh,
 	return 0;
 }
 
+static int up3d_g_ctrl(struct file *file, void *fh,
+			     struct v4l2_control *a)
+{
+	struct up3d_video_ctx *ctx = video_drvdata(file);
+
+	trace_in();
+
+	switch (a->id) {
+    case V4L2_CID_BRIGHTNESS:
+        a->value = ctx->input_brightness;
+        printk("up3d_g_ctrl V4L2_CID_BRIGHTNESS ctrl->val:%d\n", a->value);
+		break;
+	}
+
+	trace_exit();
+	return 0;
+}
+
+static int up3d_s_ctrl(struct file *file, void *fh,
+			     struct v4l2_control *a)
+{
+	struct up3d_video_ctx *ctx = video_drvdata(file);
+	trace_in();
+
+	switch (a->id) {
+    case V4L2_CID_BRIGHTNESS:
+        ctx->input_brightness = a->value;
+        printk("up3d_s_ctrl V4L2_CID_BRIGHTNESS ctrl->val:%d\n", a->value);
+		break;
+	}
+
+	trace_exit();
+	return 0;
+}
+
 struct v4l2_ioctl_ops up3d_v4l2_ioctl_ops =
 {
     // 表示它是一个摄像头设备
@@ -241,4 +276,7 @@ struct v4l2_ioctl_ops up3d_v4l2_ioctl_ops =
 	.vidioc_s_input			= up3d_s_input,
 	// .vidioc_enum_frameintervals = up3d_enum_frameintervals,		// 枚举特定格式下的帧率
 	.vidioc_enum_framesizes = up3d_enum_framesizes, 			// 枚举特定格式下的
+
+	.vidioc_g_ctrl			= up3d_g_ctrl,
+	.vidioc_s_ctrl			= up3d_s_ctrl,
 };

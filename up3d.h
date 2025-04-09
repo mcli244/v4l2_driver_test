@@ -14,6 +14,8 @@
 #define WIDTH_DEF	640
 #define HEIGHT_DEF	360
 
+#define MAX_IMAGE_BUFFER_COUNT	16
+
 extern unsigned long long get_current_timestamp(void);
 
 #if 0
@@ -72,6 +74,9 @@ struct up3d_video_ctx
 
 	int 		irq;
 	void 		*ddr_addr;
+	uint8_t 	*img_addrs[MAX_IMAGE_BUFFER_COUNT];
+	int 		img_blk_count;
+	int 		img_index;
 
 	/* controls */
 	int 						input_brightness;

@@ -11,6 +11,7 @@
 #define UP3D_STA_PAUSE 2
 static int up3d_timer_stop = UP3D_STA_STOP;
 
+#if 0
 static void _up3d_vb2_fill(struct up3d_video_ctx *_g_ctx)
 {
 	int x,y;
@@ -68,7 +69,7 @@ static void _up3d_vb2_fill(struct up3d_video_ctx *_g_ctx)
 		{
 			if(_g_ctx->ddr_addr)
 			{	
-				memcpy(p, _g_ctx->ddr_addr, _g_ctx->cur_v4l2_format.fmt.pix.sizeimage);
+				memcpy(p, _g_ctx->img_addrs[_g_ctx->img_index], _g_ctx->cur_v4l2_format.fmt.pix.sizeimage);
 			}
 			else
 			{
@@ -94,6 +95,59 @@ static void _up3d_vb2_fill(struct up3d_video_ctx *_g_ctx)
 	// spin_unlock_irqrestore(&_g_ctx->vb_queue_lock, flags);
 
 }
+#endif
+
+static void _up3d_vb2_fill_patch(struct up3d_video_ctx *_g_ctx)
+{
+	int i;
+	uint8_t *p;
+    struct up3d_vb2_buf *up3d_vb;
+	static uint32_t sequence = 0;
+	trace_in();
+   
+	// 特殊处理，针对FPGA给到的图像，一个中断读取两张图像
+
+	// spin_lock_irqsave(&_g_ctx->vb_queue_lock, flags);
+	for(i=0; i<2; i++)
+	{
+		if(!list_empty(&_g_ctx->vb_queue_active)) 
+		{
+			up3d_vb = list_entry(_g_ctx->vb_queue_active.next, struct up3d_vb2_buf, list);
+
+			// 填充数据
+			// UP3D_DEBUG("vb2_plane_vaddr(&buf->vb.vb2_buf, 0):0x%x --- 0x%x", vb2_plane_vaddr(&up3d_vb->vb.vb2_buf, 0), up3d_vb->vb.vb2_buf.planes[0].mem_priv);
+			// memset(up3d_vb->vb.vb2_buf.planes[0].mem_priv, 0xff, _g_ctx->cur_v4l2_format.fmt.pix.sizeimage);
+			
+			p = (uint8_t *)vb2_plane_vaddr(&up3d_vb->vb.vb2_buf, 0);
+			if(_g_ctx->cur_v4l2_format.fmt.pix.pixelformat == V4L2_PIX_FMT_GREY)
+			{
+				if(_g_ctx->ddr_addr)
+				{	
+					memcpy(p, _g_ctx->img_addrs[_g_ctx->img_index] + _g_ctx->cur_v4l2_format.fmt.pix.sizeimage * i, _g_ctx->cur_v4l2_format.fmt.pix.sizeimage);
+				}
+				else
+				{
+					UP3D_DEBUG("ddr_addr is NULL\n");
+				}
+			}
+			else
+			{
+				// 其他格式
+				// memset(, 0xff, _g_ctx->cur_v4l2_format.fmt.pix.sizeimage);
+			}
+			
+
+			// memset(, 0xff, _g_ctx->cur_v4l2_format.fmt.pix.sizeimage);
+			up3d_vb->vb.vb2_buf.timestamp = ktime_get_ns();
+			up3d_vb->vb.field = V4L2_FIELD_NONE;
+			up3d_vb->vb.sequence = sequence++;
+			vb2_set_plane_payload(&up3d_vb->vb.vb2_buf, 0, _g_ctx->cur_v4l2_format.fmt.pix.sizeimage);
+			vb2_buffer_done(&up3d_vb->vb.vb2_buf, VB2_BUF_STATE_DONE);
+
+			list_del_init(&up3d_vb->list);
+		}
+	}
+}
 
 static irqreturn_t pl_cap_intc_irq_handler(int irq, void *dev_id)
 {
@@ -105,7 +159,15 @@ static irqreturn_t pl_cap_intc_irq_handler(int irq, void *dev_id)
 		return IRQ_HANDLED;
 	}
 
-	_up3d_vb2_fill(ctx);
+	_up3d_vb2_fill_patch(ctx);
+	// _up3d_vb2_fill(ctx);
+
+	ctx->img_index++;
+	if(ctx->img_index >= ctx->img_blk_count)
+	{
+		ctx->img_index = 0;
+	}
+
 	return IRQ_HANDLED;
 }
 

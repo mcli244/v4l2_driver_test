@@ -103,6 +103,10 @@ static int _up3d_reserved_memory_by_dtb(struct up3d_video_ctx *ctx, struct platf
 				compatible = "shared-dma-pool";
 				reg = <0x10000000 0x01000000>;  // 物理地址 0x10000000，大小 16MB
 				no-map;
+				// 图像宽度 图像高度 每个像素占用字节数
+				img-info = <416 480 1>;
+				// 起始地址 间隔大小 总数量
+				img-buffers = <0 0x100000 15>;
 			};
 		};
 
@@ -118,6 +122,10 @@ static int _up3d_reserved_memory_by_dtb(struct up3d_video_ctx *ctx, struct platf
 	struct resource res;
 	phys_addr_t phys_addr;
 	size_t size;
+	const __be32 *prop;
+	u32 img_width, img_height, img_bpp, img_bytes;
+	u32 offset, blk_size, blk_count;
+	int i;
 
 	struct device *dev = &pdev->dev;
 	struct device_node *np = of_parse_phandle(dev->of_node, "memory-region", 0);
@@ -144,6 +152,58 @@ static int _up3d_reserved_memory_by_dtb(struct up3d_video_ctx *ctx, struct platf
 		of_node_put(np);
 		return -ENOMEM;
 	}
+	dev_info(dev, "Mapped reserved memory to virtual address: 0x%px - 0x%px  %#x\n", ctx->ddr_addr, ctx->ddr_addr + size - 1, (int)ctx->ddr_addr);
+
+	prop = of_get_property(np, "img-info", NULL);
+	if (prop) {
+		img_width = be32_to_cpu(prop[0]);
+		img_height = be32_to_cpu(prop[1]);
+		img_bpp = be32_to_cpu(prop[2]);
+		img_bytes = img_width * img_height * img_bpp;
+		pr_info("Image info: width=%u, height=%u, bpp=%u, bytes=%u\n",
+			img_width, img_height, img_bpp, img_bytes);
+	}
+	else
+	{
+		dev_err(dev, "Failed to get image info\n");
+		memunmap(ctx->ddr_addr);
+		of_node_put(np);
+		return -EINVAL;
+	}
+
+	prop = of_get_property(np, "img-buffers", NULL);
+	if (prop) {
+		offset = be32_to_cpu(prop[0]);
+		blk_size = be32_to_cpu(prop[1]);
+		blk_count = be32_to_cpu(prop[2]);
+		if(ctx->ddr_addr + offset + blk_size * blk_count > ctx->ddr_addr + size ||
+			blk_count == 0 || blk_count > MAX_IMAGE_BUFFER_COUNT
+			)
+		{
+			dev_err(dev, "Image buffer exceeds reserved memory size! offset=%u, blk_size=%u, blk_count=%u\n", 
+				offset, blk_size, blk_count);
+			memunmap(ctx->ddr_addr);
+			of_node_put(np);
+			return -EINVAL;
+		}
+
+		pr_info("Image buffers: offset=%u, blk_size=%u, blk_count=%u\n",
+			offset, blk_size, blk_count);
+
+		for(i = 0; i < blk_count; i++) {
+			ctx->img_addrs[i] = ctx->ddr_addr + offset + (i * blk_size);
+			pr_info("Image buffer %02d address: %px\n", i, ctx->img_addrs[i]);
+		}
+		ctx->img_blk_count = blk_count;
+	}
+	else
+	{
+		dev_err(dev, "Failed to get image buffers\n");
+		memunmap(ctx->ddr_addr);
+		of_node_put(np);
+		return -EINVAL;
+	}
+
 
 	of_node_put(np);  // 释放 device_node 结构体
 

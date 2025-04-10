@@ -6,96 +6,15 @@
 
 // static struct up3d_video_ctx *_g_ctx;
 
+#define MY_SOFTIRQ_VEC 26
+
 #define UP3D_STA_STOP 0
 #define UP3D_STA_RUN 1
 #define UP3D_STA_PAUSE 2
 static int up3d_timer_stop = UP3D_STA_STOP;
 
-#if 0
-static void _up3d_vb2_fill(struct up3d_video_ctx *_g_ctx)
-{
-	int x,y;
-	uint8_t *p;
-    struct up3d_vb2_buf *up3d_vb;
-	// int flags;
-	static uint32_t sequence = 0;
-	
-    
-	trace_in();
-    /* 1. 构造数据: 从队列头部取出第1个videobuf, 填充数据
-     */
-
-	// spin_lock_irqsave(&_g_ctx->vb_queue_lock, flags);
-	if(!list_empty(&_g_ctx->vb_queue_active)) 
-	{
-		up3d_vb = list_entry(_g_ctx->vb_queue_active.next, struct up3d_vb2_buf, list);
-
-		// 填充数据
-		// UP3D_DEBUG("vb2_plane_vaddr(&buf->vb.vb2_buf, 0):0x%x --- 0x%x", vb2_plane_vaddr(&up3d_vb->vb.vb2_buf, 0), up3d_vb->vb.vb2_buf.planes[0].mem_priv);
-		// memset(up3d_vb->vb.vb2_buf.planes[0].mem_priv, 0xff, _g_ctx->cur_v4l2_format.fmt.pix.sizeimage);
-		
-		p = (uint8_t *)vb2_plane_vaddr(&up3d_vb->vb.vb2_buf, 0);
-
-		if(_g_ctx->cur_v4l2_format.fmt.pix.pixelformat == V4L2_PIX_FMT_YUYV)
-		{
-			for(x=0; x<_g_ctx->cur_v4l2_format.fmt.pix.width; x++)
-			{
-				for(y=0; y<_g_ctx->cur_v4l2_format.fmt.pix.height; y++)
-				{	
-					// YUYV
-					*(p+0) = 0x00;
-					*(p+1) = (sequence*10) % 0xff;
-					*(p+2) = 0x00;
-					*(p+3) = 0xff;
-					p += 4;
-				}
-			}
-		}
-		else if(_g_ctx->cur_v4l2_format.fmt.pix.pixelformat == V4L2_PIX_FMT_RGB24)
-		{
-			for(x=0; x<_g_ctx->cur_v4l2_format.fmt.pix.width; x++)
-			{
-				for(y=0; y<_g_ctx->cur_v4l2_format.fmt.pix.height; y++)
-				{	
-					// RGB
-					*(p+0) = 0x00;
-					*(p+1) = (sequence*10) % 0xff;
-					*(p+2) = 0x00;
-					p += 3;
-				}
-			}
-		}
-		else if(_g_ctx->cur_v4l2_format.fmt.pix.pixelformat == V4L2_PIX_FMT_GREY)
-		{
-			if(_g_ctx->ddr_addr)
-			{	
-				memcpy(p, _g_ctx->img_addrs[_g_ctx->img_index], _g_ctx->cur_v4l2_format.fmt.pix.sizeimage);
-			}
-			else
-			{
-				UP3D_DEBUG("ddr_addr is NULL\n");
-			}
-		}
-		else
-		{
-			// 其他格式
-			// memset(, 0xff, _g_ctx->cur_v4l2_format.fmt.pix.sizeimage);
-		}
-		
-
-		// memset(, 0xff, _g_ctx->cur_v4l2_format.fmt.pix.sizeimage);
-		up3d_vb->vb.vb2_buf.timestamp = ktime_get_ns();
-		up3d_vb->vb.field = V4L2_FIELD_NONE;
-		up3d_vb->vb.sequence = sequence++;
-		vb2_set_plane_payload(&up3d_vb->vb.vb2_buf, 0, _g_ctx->cur_v4l2_format.fmt.pix.sizeimage);
-		vb2_buffer_done(&up3d_vb->vb.vb2_buf, VB2_BUF_STATE_DONE);
-
-		list_del_init(&up3d_vb->list);
-	}
-	// spin_unlock_irqrestore(&_g_ctx->vb_queue_lock, flags);
-
-}
-#endif
+static void up3d_vb2_tasklet_handler(unsigned long data);
+static DECLARE_TASKLET_OLD(up3d_vb2_tasklet, up3d_vb2_tasklet_handler);
 
 static void _up3d_vb2_fill_patch(struct up3d_video_ctx *_g_ctx)
 {
@@ -149,24 +68,36 @@ static void _up3d_vb2_fill_patch(struct up3d_video_ctx *_g_ctx)
 	}
 }
 
-static irqreturn_t pl_cap_intc_irq_handler(int irq, void *dev_id)
+static void up3d_vb2_tasklet_handler(unsigned long data)
 {
-	struct up3d_video_ctx *ctx = (struct up3d_video_ctx *)dev_id;
+	struct up3d_video_ctx *ctx = (struct up3d_video_ctx *)data;
 
 	if(ctx == NULL)
 	{
 		printk(KERN_ERR "ctx is NULL\n");
-		return IRQ_HANDLED;
+		return;
 	}
 
-	_up3d_vb2_fill_patch(ctx);
 	// _up3d_vb2_fill(ctx);
+	_up3d_vb2_fill_patch(ctx);
 
 	ctx->img_index++;
 	if(ctx->img_index >= ctx->img_blk_count)
 	{
 		ctx->img_index = 0;
 	}
+	
+}
+
+static irqreturn_t pl_cap_intc_irq_handler(int irq, void *dev_id)
+{
+	struct up3d_video_ctx *ctx = (struct up3d_video_ctx *)dev_id;
+
+	if(ctx == NULL)
+		return IRQ_HANDLED;
+
+	up3d_vb2_tasklet.data = (unsigned long)ctx;
+	tasklet_schedule(&up3d_vb2_tasklet);
 
 	return IRQ_HANDLED;
 }
@@ -267,7 +198,7 @@ static int up3d_start_streaming(struct vb2_queue *q, unsigned int count)
 
 	if(up3d_timer_stop == UP3D_STA_PAUSE)
 	{
-		enable_irq(ctx->irq);
+		enable_irq(ctx->irq);	// TODO: 后续应该是通过AXI-IIC通知FPGA开始产生中断
 		up3d_timer_stop = UP3D_STA_RUN;
 	}
 	else if(up3d_timer_stop == UP3D_STA_STOP)
@@ -300,8 +231,8 @@ static void up3d_stop_streaming(struct vb2_queue *q)
 
 	if(up3d_timer_stop == UP3D_STA_RUN)
 	{
-		disable_irq_nosync(ctx->irq);
-		up3d_timer_stop = UP3D_STA_PAUSE;	// TODO: 这里没有完全释放IRQ，只是暂停了中断，释放中断放到remove中
+		disable_irq_nosync(ctx->irq);		// TODO: 后续应该是通过AXI-IIC通知FPGA停止产生中断
+		up3d_timer_stop = UP3D_STA_PAUSE;	// note: 这里没有完全释放IRQ，只是暂停了中断，释放中断放到remove中
 
 		// 关闭流时，释放所有仍然处于 ACTIVE 状态的 buffer
 		list_for_each_entry_safe(up3d_vb, tmp, &ctx->vb_queue_active, list) {

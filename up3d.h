@@ -7,7 +7,6 @@
 #include <linux/printk.h>
 #include <linux/kernel.h>
 
-// 默认格式
 #define WIDTH_MAX	1920
 #define HEIGHT_MAX	1080
 
@@ -31,19 +30,19 @@ struct up3d_framesize
 struct up3d_fmtdesc
 {
 	uint8_t		description[32]; 	
-	uint32_t	pixel_format;		// 像素格式V4L2_PIX_FMT_XXX
-	uint8_t		bytes_per_pixel;		// 每个像素占用多少字节
+	uint32_t	pixel_format;		
+	uint8_t		bytes_per_pixel;	
 	struct up3d_framesize framesize;
 };
 
 struct up3d_video_ctx
 {
 	struct device			*dev;
-	struct v4l2_format 		cur_v4l2_format;	// 保存当前的格式设置
+	struct v4l2_format 		cur_v4l2_format;	
 	struct v4l2_device		v4l2_dev;		
 	struct video_device		vid_cap_dev;	
 	struct mutex			mutex;
-	struct up3d_fmtdesc 	*fmt_lists;			// 支持的格式列表
+	struct up3d_fmtdesc 	*fmt_lists;			
 	uint32_t 				fmt_lists_cnt;		
 
 	/* 队列和buffer */

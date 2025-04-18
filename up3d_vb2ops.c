@@ -22,10 +22,7 @@ static void _up3d_vb2_fill_patch(struct up3d_video_ctx *_g_ctx)
 	uint8_t *p;
     struct up3d_vb2_buf *up3d_vb;
 	static uint32_t sequence = 0;
-	trace_in();
-   
 	// 特殊处理，针对FPGA给到的图像，一个中断读取两张图像
-
 	// spin_lock_irqsave(&_g_ctx->vb_queue_lock, flags);
 	for(i=0; i<2; i++)
 	{
@@ -46,7 +43,7 @@ static void _up3d_vb2_fill_patch(struct up3d_video_ctx *_g_ctx)
 				}
 				else
 				{
-					UP3D_DEBUG("ddr_addr is NULL\n");
+					dev_err(_g_ctx->dev, "ddr_addr is NULL\n");
 				}
 			}
 			else
@@ -74,7 +71,7 @@ static void up3d_vb2_tasklet_handler(unsigned long data)
 
 	if(ctx == NULL)
 	{
-		printk(KERN_ERR "ctx is NULL\n");
+		dev_err(ctx->dev, "ctx is NULL\n");
 		return;
 	}
 
@@ -112,12 +109,8 @@ static int up3d_queue_setup(struct vb2_queue *q,
 {
 	struct up3d_video_ctx *ctx = vb2_get_drv_priv(q);
 
-	trace_in();
-
 	*num_planes = 1;	// 目前只支持单层，设为1
 	sizes[0] = ctx->cur_v4l2_format.fmt.pix.sizeimage;
-
-	trace_exit();
 
 	return 0;
 };
@@ -133,13 +126,9 @@ static int up3d_buf_prepare(struct vb2_buffer *vb)
 	struct vb2_v4l2_buffer *vbuf = to_vb2_v4l2_buffer(vb);
 	struct up3d_vb2_buf *buf = container_of(vbuf, struct up3d_vb2_buf, vb);
 	unsigned long size;
-
 	int ret = 0;
 
-	trace_in();
-
 	size = ctx->cur_v4l2_format.fmt.pix.sizeimage;
-
 	if (vb2_plane_size(vb, 0) < size) {
 		dev_err(ctx->dev, "%s data will not fit into plane (%lu < %lu)\n",
 			__func__, vb2_plane_size(vb, 0), size);
@@ -158,17 +147,15 @@ static int up3d_buf_prepare(struct vb2_buffer *vb)
 		ret = -EINVAL;
 		goto out;
 	}
-	trace_exit();
 	return 0;
+
 out:
-	trace_exit();
 	return ret;
 }
 
 static void up3d_buf_finish(struct vb2_buffer *vb)
 {
-	trace_in();
-	trace_exit();
+
 }
 
 /**  必要
@@ -181,20 +168,14 @@ static void up3d_buf_queue(struct vb2_buffer *vb)
 	struct up3d_vb2_buf *buf = container_of(vbuf, struct up3d_vb2_buf, vb);
 	struct up3d_video_ctx *ctx = vb2_get_drv_priv(vb->vb2_queue);
 
-	trace_in();
-
 	spin_lock(&ctx->vb_queue_lock);
 	list_add_tail(&buf->list, &ctx->vb_queue_active);
 	spin_unlock(&ctx->vb_queue_lock);
-
-	trace_exit();
 }
 
 static int up3d_start_streaming(struct vb2_queue *q, unsigned int count)
 {
 	struct up3d_video_ctx *ctx = vb2_get_drv_priv(q);
-
-	trace_in();
 
 	if(up3d_timer_stop == UP3D_STA_PAUSE)
 	{
@@ -214,7 +195,6 @@ static int up3d_start_streaming(struct vb2_queue *q, unsigned int count)
 		// do nothing
 	}
 	
-	trace_exit();
 	return 0;
 }
 
@@ -227,8 +207,6 @@ static void up3d_stop_streaming(struct vb2_queue *q)
 	struct up3d_vb2_buf *up3d_vb, *tmp;
 	struct up3d_video_ctx *ctx = vb2_get_drv_priv(q);
 
-	trace_in();
-
 	if(up3d_timer_stop == UP3D_STA_RUN)
 	{
 		disable_irq_nosync(ctx->irq);		// TODO: 后续应该是通过AXI-IIC通知FPGA停止产生中断
@@ -240,20 +218,17 @@ static void up3d_stop_streaming(struct vb2_queue *q)
 				vb2_buffer_done(&up3d_vb->vb.vb2_buf, VB2_BUF_STATE_ERROR);
 			}
 	}
-	
-	trace_exit();
+
 }
 
 static void up3d_wait_prepare(struct vb2_queue *q)
 {
-	trace_in();
-	trace_exit();
+
 }
 
 static void up3d_wait_finish(struct vb2_queue *q)
 {
-	trace_in();
-	trace_exit();
+
 }
 
 static int up3d_buf_init(struct vb2_buffer *vb)
@@ -261,28 +236,13 @@ static int up3d_buf_init(struct vb2_buffer *vb)
 	struct vb2_v4l2_buffer *vbuf = to_vb2_v4l2_buffer(vb);
 	struct up3d_vb2_buf *buf = container_of(vbuf, struct up3d_vb2_buf, vb);
 
-	trace_in();
-
 	INIT_LIST_HEAD(&buf->list);
-	UP3D_DEBUG("vb->vb2_queue:%p", vb->vb2_queue);
-	UP3D_DEBUG("vb->index:%d type:0x%x memory:0x%x num_planes:%d timestamp:%lld state:%d", 
-		vb->index, vb->type, vb->memory, vb->num_planes, vb->timestamp, vb->state);
-
-	UP3D_DEBUG(" vb->planes ###################### ");
-	UP3D_DEBUG("mem_priv:%p dbuf_mapped:%d bytesused:%d length:%d min_length:%d offset:0x%x data_offset:0x%x", 
-		vb->planes[0].mem_priv, vb->planes[0].dbuf_mapped, vb->planes[0].bytesused, vb->planes[0].length, 
-		vb->planes[0].min_length, vb->planes[0].m.offset, vb->planes[0].data_offset);
-
-
-
-	trace_exit();
 	return 0;
 }
 
 static void up3d_buf_cleanup(struct vb2_buffer *vb)
 {
-	trace_in();
-	trace_exit();
+
 }
 
 

@@ -87,8 +87,8 @@ struct up3d_fmtdesc up3d_fmtdesc_lists[]=
 
 static void my_v4l2_release(struct v4l2_device *v4l2_dev)
 {
-	trace_in();
-	trace_exit();
+	
+
 }
 
 static int _up3d_reserved_memory_by_dtb(struct up3d_video_ctx *ctx, struct platform_device *pdev)
@@ -216,7 +216,7 @@ static int up3d_video_pdrv_probe(struct platform_device *pdev)
     int ret;
     struct video_device *vfd;
 
-	trace_in();
+	
 
 	memset(&up3dvideo_ctx, 0, sizeof(up3dvideo_ctx));
 
@@ -230,7 +230,7 @@ static int up3d_video_pdrv_probe(struct platform_device *pdev)
 
 	if(_up3d_reserved_memory_by_dtb(&up3dvideo_ctx, pdev) < 0)
 	{
-		printk(KERN_ERR "Failed to memremap DDR address\n");
+		dev_err(&pdev->dev, "Failed to memremap DDR address\n");
 		goto irq_ext;
 	}
 
@@ -239,7 +239,7 @@ static int up3d_video_pdrv_probe(struct platform_device *pdev)
     snprintf(up3dvideo_ctx.v4l2_dev.name, sizeof(up3dvideo_ctx.v4l2_dev.name), "%s-%03d", VID_MODULE_NAME, 0);
 	ret = v4l2_device_register(&pdev->dev, &up3dvideo_ctx.v4l2_dev);
 	if (ret < 0) {
-		UP3D_DEBUG("v4l2_device_register failed ret:%d ", ret);
+		dev_err(&pdev->dev, "v4l2_device_register failed ret:%d ", ret);
 		goto reserved_memory_free_ext;
 	}
 	up3dvideo_ctx.v4l2_dev.release = my_v4l2_release;
@@ -248,9 +248,8 @@ static int up3d_video_pdrv_probe(struct platform_device *pdev)
 	strcpy(up3dvideo_ctx.cap.driver, "up3d_driver"); // 驱动名称
 	strcpy(up3dvideo_ctx.cap.card, "up3d_device");   // 设备名称
 	up3dvideo_ctx.cap.version = 0x0001;          // 版本号
-	up3dvideo_ctx.cap.capabilities =	V4L2_CAP_VIDEO_CAPTURE | V4L2_CAP_STREAMING 
-									| V4L2_CAP_READWRITE | V4L2_CAP_DEVICE_CAPS;    // 能力，捕获和流 
-	up3dvideo_ctx.cap.device_caps = V4L2_CAP_VIDEO_CAPTURE | V4L2_CAP_STREAMING | V4L2_CAP_READWRITE;
+	up3dvideo_ctx.cap.capabilities =	V4L2_CAP_VIDEO_CAPTURE | V4L2_CAP_STREAMING  | V4L2_CAP_DEVICE_CAPS;    // 能力，捕获和流 
+	up3dvideo_ctx.cap.device_caps = V4L2_CAP_VIDEO_CAPTURE | V4L2_CAP_STREAMING;
 	up3dvideo_ctx.width_max = WIDTH_MAX;
 	up3dvideo_ctx.height_max = HEIGHT_MAX;
 	up3dvideo_ctx.width_def = WIDTH_DEF;
@@ -267,19 +266,17 @@ static int up3d_video_pdrv_probe(struct platform_device *pdev)
     vfd->release 		= video_device_release_empty;
     vfd->v4l2_dev 		= &up3dvideo_ctx.v4l2_dev;
     vfd->queue 			= &up3dvideo_ctx.vb_queue;  
-    vfd->tvnorms		= 0;   // 意义不明
-    vfd->lock 			= &up3dvideo_ctx.mutex;    // 未v4l2设置锁，先没用上暂时不加
+    vfd->tvnorms		= 0;   
+    vfd->lock 			= &up3dvideo_ctx.mutex; 
 	snprintf(vfd->name, sizeof(vfd->name),  "up3d-%03d-vid-cap", 0);
 	video_set_drvdata(vfd, &up3dvideo_ctx);
     erron = video_register_device(vfd, VFL_TYPE_VIDEO, -1);
     if(erron)
     {
-        UP3D_DEBUG("video_register_device erron:%d ", erron);
+        dev_err(&pdev->dev, "video_register_device erron:%d ", erron);
         goto unreg_dev;
     }
 
-
-	trace_exit();
 
     return 0;
 
@@ -293,22 +290,19 @@ reserved_memory_free_ext:
 irq_ext:
 	devm_free_irq(&pdev->dev, platform_get_irq(pdev, 0), NULL);
 
-	trace_exit();
+
     return -ENOMEM;
 }
 static int up3d_video_pdrv_remove(struct platform_device *dev)
 {
-    trace_in();
+    
 
 	memunmap(up3dvideo_ctx.ddr_addr);
-
 	devm_free_irq(&dev->dev, platform_get_irq(dev, 0), NULL);
-
     video_unregister_device(&up3dvideo_ctx.vid_cap_dev);
-    
     v4l2_device_put(&up3dvideo_ctx.v4l2_dev);
 	
-	trace_exit();
+
     return 0;
 }
 

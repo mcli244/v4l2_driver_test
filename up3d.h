@@ -16,19 +16,6 @@
 
 #define MAX_IMAGE_BUFFER_COUNT	16
 
-extern unsigned long long get_current_timestamp(void);
-
-#if 0
-#define trace_in()					printk(KERN_DEBUG "%s:%d|%s(%lld) in.", __FILE__, __LINE__,__FUNCTION__, get_current_timestamp())
-#define trace_exit()				printk(KERN_DEBUG "%s:%d|%s(%lld) exit.", __FILE__, __LINE__,__FUNCTION__, get_current_timestamp())
-#define UP3D_DEBUG(format, ...)  	printk(KERN_DEBUG "%s:%d|%s(%lld) " format , __FILE__, __LINE__,__FUNCTION__, get_current_timestamp(), ##__VA_ARGS__)
-#else 
-#define trace_in()					
-#define trace_exit()				
-#define UP3D_DEBUG(format, ...)  	
-#endif
-
-
 struct up3d_vb2_buf {
 	struct vb2_v4l2_buffer vb;	// 必须在第一个
 	bool			prepared;

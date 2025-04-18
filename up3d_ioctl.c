@@ -16,7 +16,7 @@ static int up3d_enum_fmt_vid_cap(struct file *file, void *fh,struct v4l2_fmtdesc
 {
 	struct up3d_video_ctx *ctx = video_drvdata(file);
 
-	trace_in();
+	
 	
 	if (f->index >= ctx->fmt_lists_cnt)	
 		return -EINVAL;
@@ -24,7 +24,7 @@ static int up3d_enum_fmt_vid_cap(struct file *file, void *fh,struct v4l2_fmtdesc
 	strcpy(f->description, ctx->fmt_lists[f->index].description);
 	f->pixelformat = ctx->fmt_lists[f->index].pixel_format;
 
-	trace_exit();
+
 	return 0;
 }
 
@@ -33,10 +33,10 @@ static int up3d_g_fmt_vid_cap(struct file *file, void *fh,struct v4l2_format *f)
 {
 	struct up3d_video_ctx *ctx = video_drvdata(file);
 
-	trace_in();
+	
 	memcpy(f, &ctx->cur_v4l2_format, sizeof(struct v4l2_format));
 
-	trace_exit();
+
 	return 0;
 }
 
@@ -48,7 +48,7 @@ static int up3d_try_fmt_vid_cap(struct file *file, void *fh,struct v4l2_format *
 	int index=0;
 	struct up3d_video_ctx *ctx = video_drvdata(file);
 	
-	trace_in();
+	
 
 	for(index=0; index<ctx->fmt_lists_cnt; index++)
 	{
@@ -70,7 +70,7 @@ static int up3d_try_fmt_vid_cap(struct file *file, void *fh,struct v4l2_format *
 	f->fmt.pix.bytesperline =	f->fmt.pix.width * ctx->fmt_lists[index].bytes_per_pixel;
 	f->fmt.pix.sizeimage 	=	f->fmt.pix.height * f->fmt.pix.bytesperline;
 
-	trace_exit();
+
 	return 0;
 }
 
@@ -79,14 +79,14 @@ static int up3d_s_fmt_vid_cap(struct file *file, void *fh,struct v4l2_format *f)
 	int ret;
 	struct up3d_video_ctx *ctx = video_drvdata(file);
 
-	trace_in();
+	
 	ret = up3d_try_fmt_vid_cap(file, NULL, f);
 	if (ret < 0)
 		return ret;
 
     memcpy(&ctx->cur_v4l2_format, f, sizeof(struct v4l2_format));
 	
-	trace_exit();
+
 	return 0;
 }
 
@@ -94,22 +94,22 @@ static int up3d_s_fmt_vid_cap(struct file *file, void *fh,struct v4l2_format *f)
 #define INPUT_DEVICE_NUMS	1
 static int up3d_enum_input(struct file *file, void *fh,struct v4l2_input *inp)
 {
-	trace_in();
+	
 	if (inp->index >= INPUT_DEVICE_NUMS)	// 只支持一种输入设备，就是相机自身
 		return -EINVAL;	
  
 	inp->type = V4L2_INPUT_TYPE_CAMERA;
 	inp->std = V4L2_STD_525_60;
 	sprintf(inp->name, "Camera %u", inp->index);
-	trace_exit();
+
 	return 0;
 }
 
 /* 获取输入设备 */
 static int up3d_g_input(struct file *file, void *fh, unsigned int *i)
 {
-	trace_in();
-	trace_exit();
+	
+
 	// struct vivid_dev *dev = video_drvdata(file);
 	// *i = dev->input;
 	return 0;
@@ -118,8 +118,8 @@ static int up3d_g_input(struct file *file, void *fh, unsigned int *i)
 /* 设置输入设备 */
 static int up3d_s_input(struct file *file, void *fh, unsigned int i)
 {
-	trace_in();
-	trace_exit();
+	
+
 	// struct vivid_dev *dev = video_drvdata(file);
  
 	// if (i >= INPUT_DEVICE_NUMS)
@@ -135,9 +135,9 @@ static int up3d_querycap(struct file *file, void *fh, struct v4l2_capability *ca
 {
 	struct up3d_video_ctx *ctx = video_drvdata(file);
 
-	trace_in();
+	
 	memcpy(cap, &ctx->cap, sizeof(struct v4l2_capability));	
-	trace_exit();
+
 	
 	return 0;
 }
@@ -145,8 +145,8 @@ static int up3d_querycap(struct file *file, void *fh, struct v4l2_capability *ca
 // static int up3d_enum_frameintervals(struct file *file, void *fh,
 // 					  struct v4l2_frmivalenum *fival)
 // {
-// 	trace_in();
-// 	trace_exit();
+// 	
+// 
 // 	return 0;
 // }
 
@@ -156,9 +156,10 @@ static int up3d_enum_framesizes(struct file *file, void *fh,
 	int index = 0;
 	struct up3d_video_ctx *ctx = video_drvdata(file);
 	
-	trace_in();
 	
-	UP3D_DEBUG("index:%d fsize->pixel_format:0x%x type:0x%x", 
+	
+	
+	dev_dbg(ctx->dev, "index:%d fsize->pixel_format:0x%x type:0x%x", 
 			fsize->index, fsize->pixel_format, fsize->type);
 
 	for(index=0; index<ctx->fmt_lists_cnt; index++)
@@ -169,7 +170,7 @@ static int up3d_enum_framesizes(struct file *file, void *fh,
 
 	if(index >= ctx->fmt_lists_cnt)
 	{
-		UP3D_DEBUG("index:%d ctx->fmt_lists_cnt:%d fsize->pixel_format:0x%x", 
+		dev_err(ctx->dev, "index:%d ctx->fmt_lists_cnt:%d fsize->pixel_format:0x%x", 
 			fsize->index, ctx->fmt_lists_cnt, fsize->pixel_format);
 		return -EINVAL;
 	}
@@ -202,7 +203,7 @@ static int up3d_enum_framesizes(struct file *file, void *fh,
 			break;
 	}
 
-	trace_exit();
+
 
 	return 0;
 }
@@ -212,16 +213,16 @@ static int up3d_g_ctrl(struct file *file, void *fh,
 {
 	struct up3d_video_ctx *ctx = video_drvdata(file);
 
-	trace_in();
+	
 
 	switch (a->id) {
     case V4L2_CID_BRIGHTNESS:
         a->value = ctx->input_brightness;
-        printk("up3d_g_ctrl V4L2_CID_BRIGHTNESS ctrl->val:%d\n", a->value);
+        dev_info(ctx->dev, "up3d_g_ctrl V4L2_CID_BRIGHTNESS ctrl->val:%d\n", a->value);
 		break;
 	}
 
-	trace_exit();
+
 	return 0;
 }
 
@@ -229,16 +230,16 @@ static int up3d_s_ctrl(struct file *file, void *fh,
 			     struct v4l2_control *a)
 {
 	struct up3d_video_ctx *ctx = video_drvdata(file);
-	trace_in();
+	
 
 	switch (a->id) {
     case V4L2_CID_BRIGHTNESS:
         ctx->input_brightness = a->value;
-        printk("up3d_s_ctrl V4L2_CID_BRIGHTNESS ctrl->val:%d\n", a->value);
+        dev_info(ctx->dev, "up3d_s_ctrl V4L2_CID_BRIGHTNESS ctrl->val:%d\n", a->value);
 		break;
 	}
 
-	trace_exit();
+
 	return 0;
 }
 

@@ -15,6 +15,15 @@
 
 #define MAX_IMAGE_BUFFER_COUNT	16
 
+#define VIDIOC_UP3D_GET_STATUS  _IOR('V', 610, struct up3d_device_info)
+struct up3d_device_info {
+    uint8_t 	status;
+	uint32_t 	irq_count;
+	uint8_t 	irq_is_disable;
+	struct v4l2_format 		cur_v4l2_format;
+};
+
+
 struct up3d_vb2_buf {
 	struct vb2_v4l2_buffer vb;	// 必须在第一个
 	bool			prepared;
@@ -66,6 +75,8 @@ struct up3d_video_ctx
 
 	/* controls */
 	int 						input_brightness;
+
+	struct up3d_device_info 	device_info;
 };
 
 

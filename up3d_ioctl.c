@@ -5,11 +5,13 @@
 
 static const struct v4l2_frmsize_discrete rgb24_sizes[] = {
 	{320, 180},
-	{640, 360},
 	{640, 480},
 	{1280, 720},
-	{1920, 1080},
-	{3840, 2160},
+};
+
+static const struct v4l2_frmsize_discrete grey_sizes[] = {
+	{416, 480},
+	{640, 480},
 };
 
 /* 列举支持哪种格式 */
@@ -149,11 +151,10 @@ static int up3d_enum_framesizes(struct file *file, void *fh,
 		fsize->discrete.height = ctx->fmt_lists[index].framesize.height;
 		break;
 	case V4L2_PIX_FMT_GREY:
-		if (fsize->index > 0)
+		if (fsize->index >= ARRAY_SIZE(grey_sizes))
 			return -EINVAL;
 		fsize->type = V4L2_FRMSIZE_TYPE_DISCRETE;
-		fsize->discrete.width = ctx->fmt_lists[index].framesize.width;
-		fsize->discrete.height = ctx->fmt_lists[index].framesize.height;
+		fsize->discrete = grey_sizes[fsize->index];
 		break;
 	default:
 		return -EINVAL;
@@ -195,6 +196,23 @@ static int up3d_s_ctrl(struct file *file, void *fh,
 	return 0;
 }
 
+static long up3d_vidioc_default(struct file *file, void *priv,
+			       bool valid_prio, unsigned int cmd, void *param)
+{
+	struct up3d_device_info *status = (struct up3d_device_info *)param;
+	struct up3d_video_ctx *ctx = video_drvdata(file);
+
+    if (cmd == VIDIOC_UP3D_GET_STATUS) {
+		memcpy(&ctx->device_info.cur_v4l2_format, &ctx->cur_v4l2_format, sizeof(struct v4l2_format));
+		memcpy(status, &ctx->device_info, sizeof(struct up3d_device_info));
+        return 0;
+    }
+
+    return -ENOTTY; // Not a valid ioctl
+}
+
+
+
 struct v4l2_ioctl_ops up3d_v4l2_ioctl_ops =
 	{
 		.vidioc_querycap = up3d_querycap,
@@ -217,4 +235,6 @@ struct v4l2_ioctl_ops up3d_v4l2_ioctl_ops =
 		.vidioc_enum_framesizes = up3d_enum_framesizes,
 		.vidioc_g_ctrl = up3d_g_ctrl,
 		.vidioc_s_ctrl = up3d_s_ctrl,
+
+		.vidioc_default       = up3d_vidioc_default
 };

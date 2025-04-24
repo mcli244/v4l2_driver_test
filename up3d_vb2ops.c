@@ -11,7 +11,7 @@
 #define UP3D_STA_STOP 0
 #define UP3D_STA_RUN 1
 #define UP3D_STA_PAUSE 2
-static int up3d_timer_stop = UP3D_STA_STOP;
+static int up3d_status = UP3D_STA_STOP;
 
 static void up3d_vb2_tasklet_handler(unsigned long data);
 static DECLARE_TASKLET_OLD(up3d_vb2_tasklet, up3d_vb2_tasklet_handler);
@@ -22,7 +22,11 @@ static void _up3d_vb2_fill_patch(struct up3d_video_ctx *_g_ctx)
 	uint8_t *p;
 	struct up3d_vb2_buf *up3d_vb;
 	static uint32_t sequence = 0;
+	unsigned long flags;
 	// 特殊处理，针对FPGA给到的图像，一个中断读取两张图像
+
+	spin_lock_irqsave(&_g_ctx->vb_queue_lock, flags);
+
 	for (i = 0; i < 2; i++)
 	{
 		if (!list_empty(&_g_ctx->vb_queue_active))
@@ -54,6 +58,8 @@ static void _up3d_vb2_fill_patch(struct up3d_video_ctx *_g_ctx)
 			list_del_init(&up3d_vb->list);
 		}
 	}
+
+	spin_unlock_irqrestore(&_g_ctx->vb_queue_lock, flags);
 }
 
 static void up3d_vb2_tasklet_handler(unsigned long data)
@@ -69,11 +75,12 @@ static void up3d_vb2_tasklet_handler(unsigned long data)
 	// _up3d_vb2_fill(ctx);
 	_up3d_vb2_fill_patch(ctx);
 
-	ctx->img_index++;
-	if (ctx->img_index >= ctx->img_blk_count)
-	{
-		ctx->img_index = 0;
-	}
+	// TODO: 按FPGA的约定读取
+	// ctx->img_index++;
+	// if (ctx->img_index >= ctx->img_blk_count)
+	// {
+	// 	ctx->img_index = 0;
+	// }
 }
 
 static irqreturn_t pl_cap_intc_irq_handler(int irq, void *dev_id)
@@ -85,6 +92,8 @@ static irqreturn_t pl_cap_intc_irq_handler(int irq, void *dev_id)
 
 	up3d_vb2_tasklet.data = (unsigned long)ctx;
 	tasklet_schedule(&up3d_vb2_tasklet);
+
+	ctx->device_info.irq_count++;
 
 	return IRQ_HANDLED;
 }
@@ -155,12 +164,13 @@ static int up3d_start_streaming(struct vb2_queue *q, unsigned int count)
 {
 	struct up3d_video_ctx *ctx = vb2_get_drv_priv(q);
 
-	if (up3d_timer_stop == UP3D_STA_PAUSE)
+	if (up3d_status == UP3D_STA_PAUSE)
 	{
 		enable_irq(ctx->irq); // TODO: 后续应该是通过AXI-IIC通知FPGA开始产生中断
-		up3d_timer_stop = UP3D_STA_RUN;
+		ctx->device_info.irq_is_disable = 0;
+		up3d_status = UP3D_STA_RUN;
 	}
-	else if (up3d_timer_stop == UP3D_STA_STOP)
+	else if (up3d_status == UP3D_STA_STOP)
 	{
 		/* 申请中断 */
 		if (devm_request_irq(ctx->dev, ctx->irq, pl_cap_intc_irq_handler, IRQF_TRIGGER_RISING, "pl_cap_intc", ctx))
@@ -168,12 +178,15 @@ static int up3d_start_streaming(struct vb2_queue *q, unsigned int count)
 			dev_err(ctx->dev, "Failed to request IRQ\n");
 			return -EINVAL;
 		}
-		up3d_timer_stop = UP3D_STA_RUN;
+		up3d_status = UP3D_STA_RUN;
+		ctx->device_info.irq_is_disable = 0;
 	}
 	else
 	{
 		// do nothing
 	}
+
+	ctx->device_info.status = up3d_status;
 
 	return 0;
 }
@@ -183,10 +196,11 @@ static void up3d_stop_streaming(struct vb2_queue *q)
 	struct up3d_vb2_buf *up3d_vb, *tmp;
 	struct up3d_video_ctx *ctx = vb2_get_drv_priv(q);
 
-	if (up3d_timer_stop == UP3D_STA_RUN)
+	if (up3d_status == UP3D_STA_RUN)
 	{
 		disable_irq_nosync(ctx->irq);	  // TODO: 后续应该是通过AXI-IIC通知FPGA停止产生中断
-		up3d_timer_stop = UP3D_STA_PAUSE; // note: 这里没有完全释放IRQ，只是暂停了中断，释放中断放到remove中
+		up3d_status = UP3D_STA_PAUSE; // note: 这里没有完全释放IRQ，只是暂停了中断，释放中断放到remove中
+		ctx->device_info.irq_is_disable = 1;
 
 		list_for_each_entry_safe(up3d_vb, tmp, &ctx->vb_queue_active, list)
 		{
@@ -194,6 +208,8 @@ static void up3d_stop_streaming(struct vb2_queue *q)
 			vb2_buffer_done(&up3d_vb->vb.vb2_buf, VB2_BUF_STATE_ERROR);
 		}
 	}
+
+	ctx->device_info.status = up3d_status;
 }
 
 static void up3d_wait_prepare(struct vb2_queue *q)

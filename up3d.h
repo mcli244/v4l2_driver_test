@@ -18,8 +18,12 @@
 #define VIDIOC_UP3D_GET_STATUS  _IOR('V', 610, struct up3d_device_info)
 struct up3d_device_info {
     uint8_t 	status;
-	uint32_t 	irq_count;
 	uint8_t 	irq_is_disable;
+	uint32_t 	irq_count;
+	uint16_t 	vb_total;
+	uint16_t 	vb_free;
+	uint16_t 	vb_free_min;
+	uint16_t 	vb_queue_overflow;
 	struct v4l2_format 		cur_v4l2_format;
 };
 

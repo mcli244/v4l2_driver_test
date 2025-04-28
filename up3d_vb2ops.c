@@ -32,21 +32,35 @@ static void _up3d_vb2_fill_patch(struct up3d_video_ctx *_g_ctx)
 		if (!list_empty(&_g_ctx->vb_queue_active))
 		{
 			up3d_vb = list_entry(_g_ctx->vb_queue_active.next, struct up3d_vb2_buf, list);
-			p = (uint8_t *)vb2_plane_vaddr(&up3d_vb->vb.vb2_buf, 0);
-			if (_g_ctx->cur_v4l2_format.fmt.pix.pixelformat == V4L2_PIX_FMT_GREY)
+			if(up3d_vb == NULL)
 			{
-				if (_g_ctx->ddr_addr)
+				dev_err(_g_ctx->dev, "up3d_vb is NULL\n");
+				break;
+			}
+			p = (uint8_t *)vb2_plane_vaddr(&up3d_vb->vb.vb2_buf, 0);
+			if(p)
+			{	
+				if (_g_ctx->cur_v4l2_format.fmt.pix.pixelformat == V4L2_PIX_FMT_GREY)
 				{
-					memcpy(p, _g_ctx->img_addrs[_g_ctx->img_index] + _g_ctx->cur_v4l2_format.fmt.pix.sizeimage * i, _g_ctx->cur_v4l2_format.fmt.pix.sizeimage);
+					if (_g_ctx->ddr_addr)
+					{
+						// memcpy(p, _g_ctx->img_addrs[_g_ctx->img_index] + _g_ctx->cur_v4l2_format.fmt.pix.sizeimage * i, _g_ctx->cur_v4l2_format.fmt.pix.sizeimage);
+						memcpy(p, _g_ctx->img_addrs[_g_ctx->img_index], _g_ctx->cur_v4l2_format.fmt.pix.sizeimage);
+					}
+					else
+					{
+						dev_err(_g_ctx->dev, "ddr_addr is NULL\n");
+					}
 				}
 				else
 				{
-					dev_err(_g_ctx->dev, "ddr_addr is NULL\n");
+					// 其他格式
+					dev_err(_g_ctx->dev, "not support this format\n");
 				}
 			}
 			else
 			{
-				// 其他格式
+				dev_err(_g_ctx->dev, "vb2_plane_vaddr is NULL\n");
 			}
 
 			up3d_vb->vb.vb2_buf.timestamp = ktime_get_ns();
@@ -56,6 +70,16 @@ static void _up3d_vb2_fill_patch(struct up3d_video_ctx *_g_ctx)
 			vb2_buffer_done(&up3d_vb->vb.vb2_buf, VB2_BUF_STATE_DONE);
 
 			list_del_init(&up3d_vb->list);
+
+			_g_ctx->device_info.vb_free--;
+			if(_g_ctx->device_info.vb_free < _g_ctx->device_info.vb_free_min)
+			{
+				_g_ctx->device_info.vb_free_min = _g_ctx->device_info.vb_free;
+			}
+
+		} else 
+		{
+			_g_ctx->device_info.vb_queue_overflow++;
 		}
 	}
 
@@ -154,14 +178,15 @@ static void up3d_buf_queue(struct vb2_buffer *vb)
 	struct vb2_v4l2_buffer *vbuf = to_vb2_v4l2_buffer(vb);
 	struct up3d_vb2_buf *buf = container_of(vbuf, struct up3d_vb2_buf, vb);
 	struct up3d_video_ctx *ctx = vb2_get_drv_priv(vb->vb2_queue);
-
 	spin_lock(&ctx->vb_queue_lock);
 	list_add_tail(&buf->list, &ctx->vb_queue_active);
 	spin_unlock(&ctx->vb_queue_lock);
+	ctx->device_info.vb_free++;
 }
 
 static int up3d_start_streaming(struct vb2_queue *q, unsigned int count)
 {
+	struct up3d_vb2_buf *up3d_vb, *tmp;
 	struct up3d_video_ctx *ctx = vb2_get_drv_priv(q);
 
 	if (up3d_status == UP3D_STA_PAUSE)
@@ -179,7 +204,13 @@ static int up3d_start_streaming(struct vb2_queue *q, unsigned int count)
 			return -EINVAL;
 		}
 		up3d_status = UP3D_STA_RUN;
+
 		ctx->device_info.irq_is_disable = 0;
+		ctx->device_info.vb_total = 0;
+		list_for_each_entry_safe(up3d_vb, tmp, &ctx->vb_queue_active, list)
+		{
+			ctx->device_info.vb_total++;
+		}
 	}
 	else
 	{
@@ -187,6 +218,10 @@ static int up3d_start_streaming(struct vb2_queue *q, unsigned int count)
 	}
 
 	ctx->device_info.status = up3d_status;
+	dev_info(ctx->dev, "status:%d vb_total:%d vb_free:%d vb_free_min:%d vb_queue_overflow:%d irq_count:%d\n",
+			 ctx->device_info.status, ctx->device_info.vb_total, 
+			 ctx->device_info.vb_free, ctx->device_info.vb_free_min,
+			 ctx->device_info.vb_queue_overflow, ctx->device_info.irq_count);
 
 	return 0;
 }
@@ -198,18 +233,29 @@ static void up3d_stop_streaming(struct vb2_queue *q)
 
 	if (up3d_status == UP3D_STA_RUN)
 	{
-		disable_irq_nosync(ctx->irq);	  // TODO: 后续应该是通过AXI-IIC通知FPGA停止产生中断
+		// disable_irq_nosync(ctx->irq);	  // TODO: 后续应该是通过AXI-IIC通知FPGA停止产生中断
+		disable_irq(ctx->irq);	  // TODO: 后续应该是通过AXI-IIC通知FPGA停止产生中断
 		up3d_status = UP3D_STA_PAUSE; // note: 这里没有完全释放IRQ，只是暂停了中断，释放中断放到remove中
-		ctx->device_info.irq_is_disable = 1;
-
+		
 		list_for_each_entry_safe(up3d_vb, tmp, &ctx->vb_queue_active, list)
 		{
 			list_del(&up3d_vb->list);
 			vb2_buffer_done(&up3d_vb->vb.vb2_buf, VB2_BUF_STATE_ERROR);
 		}
+
+		ctx->device_info.irq_is_disable = 1;
+
+		dev_info(ctx->dev, "status:%d vb_total:%d vb_free:%d vb_free_min:%d vb_queue_overflow:%d irq_count:%d\n",
+			 ctx->device_info.status, ctx->device_info.vb_total, 
+			 ctx->device_info.vb_free, ctx->device_info.vb_free_min,
+			 ctx->device_info.vb_queue_overflow, ctx->device_info.irq_count);
 	}
 
 	ctx->device_info.status = up3d_status;
+	ctx->device_info.vb_free = ctx->device_info.vb_total;
+	ctx->device_info.vb_free_min = ctx->device_info.vb_total;
+	ctx->device_info.vb_queue_overflow = 0;
+	ctx->device_info.irq_count = 0;	
 }
 
 static void up3d_wait_prepare(struct vb2_queue *q)

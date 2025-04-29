@@ -5,6 +5,7 @@
 #include <linux/fs.h>
 #include <linux/slab.h>
 
+
 #include "up3d_sysfs.h"
 #include "up3d.h"
 
@@ -87,4 +88,41 @@ static struct attribute *up3d_attrs[] = {
 
 const struct attribute_group up3d_attr_group = {
     .attrs = up3d_attrs,
+};
+
+
+static int up3d_video_debugfs_open(struct inode *inode, struct file *file)
+{
+    file->private_data = inode->i_private;
+    return 0;
+}
+
+static ssize_t up3d_video_debugfs_read(struct file *file, char __user *buf,
+                              size_t count, loff_t *ppos)
+{
+	char tmp[256];
+	int len = 0;
+    struct up3d_video_ctx *ctx = file->private_data;
+	if (!ctx)
+		return -EINVAL;
+
+    len = snprintf(tmp, sizeof(tmp), "status:%d  irq_count:%d vb_total:%d vb_free:%d vb_free_min:%d vb_queue_overflow:%d \n"
+		"pixelformat:0x%x %d x %d\n", 
+		ctx->device_info.status, 
+		ctx->device_info.irq_count,
+		ctx->device_info.vb_total,
+		ctx->device_info.vb_free,
+		ctx->device_info.vb_free_min,
+		ctx->device_info.vb_queue_overflow,
+		ctx->device_info.cur_v4l2_format.fmt.pix.pixelformat,
+		ctx->device_info.cur_v4l2_format.fmt.pix.width,
+		ctx->device_info.cur_v4l2_format.fmt.pix.height);
+    return simple_read_from_buffer(buf, count, ppos, tmp, len);
+}
+
+const struct file_operations up3d_video_debugfs_fops = {
+    .owner = THIS_MODULE,
+    .read = up3d_video_debugfs_read,
+	.open = up3d_video_debugfs_open,
+	.llseek = default_llseek,
 };

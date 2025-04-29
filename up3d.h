@@ -6,6 +6,7 @@
 #include <media/v4l2-device.h>
 #include <linux/printk.h>
 #include <linux/kernel.h>
+#include <linux/debugfs.h>
 
 #define WIDTH_MAX	1920
 #define HEIGHT_MAX	1080
@@ -81,6 +82,7 @@ struct up3d_video_ctx
 	int 						input_brightness;
 
 	struct up3d_device_info 	device_info;
+	struct dentry 				*debugfs_root;
 };
 
 

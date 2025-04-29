@@ -245,6 +245,8 @@ const struct v4l2_file_operations up3d_v4l2_fops = {
 	.unlocked_ioctl = video_ioctl2,
 };
 
+
+
 static int up3d_video_pdrv_probe(struct platform_device *pdev)
 {
 	int erron;
@@ -319,7 +321,18 @@ static int up3d_video_pdrv_probe(struct platform_device *pdev)
 		goto unreg_video;
     }
 
+	up3dvideo_ctx.debugfs_root = debugfs_create_dir("up3d_video", NULL);
+	if(up3dvideo_ctx.debugfs_root == NULL)
+	{
+		dev_err(&pdev->dev, "Failed to create debugfs directory\n");
+		goto sysfs_remove;
+	}
+	debugfs_create_file("irq_count", 0444, up3dvideo_ctx.debugfs_root, &up3dvideo_ctx, &up3d_video_debugfs_fops);
+
 	return 0;
+
+sysfs_remove:
+	sysfs_remove_group(&pdev->dev.kobj, &up3d_attr_group);
 
 unreg_video:
 	video_unregister_device(&up3dvideo_ctx.vid_cap_dev);
@@ -337,11 +350,18 @@ irq_ext:
 }
 static int up3d_video_pdrv_remove(struct platform_device *dev)
 {
+	struct up3d_video_ctx *ctx = platform_get_drvdata(dev);
+
+	if (!ctx)
+		return -EINVAL;
+
+	debugfs_remove_recursive(ctx->debugfs_root);
+    ctx->debugfs_root = NULL;
 	sysfs_remove_group(&dev->dev.kobj, &up3d_attr_group);
-	memunmap(up3dvideo_ctx.ddr_addr);
+	memunmap(ctx->ddr_addr);
 	devm_free_irq(&dev->dev, platform_get_irq(dev, 0), NULL);
-	video_unregister_device(&up3dvideo_ctx.vid_cap_dev);
-	v4l2_device_put(&up3dvideo_ctx.v4l2_dev);
+	video_unregister_device(&ctx->vid_cap_dev);
+	v4l2_device_put(&ctx->v4l2_dev);
 
 	return 0;
 }

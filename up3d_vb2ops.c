@@ -211,6 +211,8 @@ static int up3d_start_streaming(struct vb2_queue *q, unsigned int count)
 		{
 			ctx->device_info.vb_total++;
 		}
+		ctx->device_info.vb_free = ctx->device_info.vb_total;
+		ctx->device_info.vb_free_min = ctx->device_info.vb_total;
 	}
 	else
 	{
@@ -218,10 +220,6 @@ static int up3d_start_streaming(struct vb2_queue *q, unsigned int count)
 	}
 
 	ctx->device_info.status = up3d_status;
-	dev_info(ctx->dev, "status:%d vb_total:%d vb_free:%d vb_free_min:%d vb_queue_overflow:%d irq_count:%d\n",
-			 ctx->device_info.status, ctx->device_info.vb_total, 
-			 ctx->device_info.vb_free, ctx->device_info.vb_free_min,
-			 ctx->device_info.vb_queue_overflow, ctx->device_info.irq_count);
 
 	return 0;
 }
@@ -236,26 +234,15 @@ static void up3d_stop_streaming(struct vb2_queue *q)
 		// disable_irq_nosync(ctx->irq);	  // TODO: 后续应该是通过AXI-IIC通知FPGA停止产生中断
 		disable_irq(ctx->irq);	  // TODO: 后续应该是通过AXI-IIC通知FPGA停止产生中断
 		up3d_status = UP3D_STA_PAUSE; // note: 这里没有完全释放IRQ，只是暂停了中断，释放中断放到remove中
+		ctx->device_info.status = up3d_status;
 		
 		list_for_each_entry_safe(up3d_vb, tmp, &ctx->vb_queue_active, list)
 		{
 			list_del(&up3d_vb->list);
 			vb2_buffer_done(&up3d_vb->vb.vb2_buf, VB2_BUF_STATE_ERROR);
 		}
-
 		ctx->device_info.irq_is_disable = 1;
-
-		dev_info(ctx->dev, "status:%d vb_total:%d vb_free:%d vb_free_min:%d vb_queue_overflow:%d irq_count:%d\n",
-			 ctx->device_info.status, ctx->device_info.vb_total, 
-			 ctx->device_info.vb_free, ctx->device_info.vb_free_min,
-			 ctx->device_info.vb_queue_overflow, ctx->device_info.irq_count);
 	}
-
-	ctx->device_info.status = up3d_status;
-	ctx->device_info.vb_free = ctx->device_info.vb_total;
-	ctx->device_info.vb_free_min = ctx->device_info.vb_total;
-	ctx->device_info.vb_queue_overflow = 0;
-	ctx->device_info.irq_count = 0;	
 }
 
 static void up3d_wait_prepare(struct vb2_queue *q)

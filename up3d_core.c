@@ -44,6 +44,7 @@
 #include "up3d.h"
 #include "up3d_ioctl.h"
 #include "up3d_vb2ops.h"
+#include "up3d_sysfs.h"
 
 #define VID_MODULE_NAME "up3d_vid"
 
@@ -310,7 +311,18 @@ static int up3d_video_pdrv_probe(struct platform_device *pdev)
 		goto unreg_dev;
 	}
 
+	/* 在 sysfs 创建属性组 */
+	platform_set_drvdata(pdev, &up3dvideo_ctx);
+    ret = sysfs_create_group(&pdev->dev.kobj, &up3d_attr_group);
+    if (ret) {
+        dev_err(&pdev->dev, "sysfs_create_group erron:%d ", erron);
+		goto unreg_video;
+    }
+
 	return 0;
+
+unreg_video:
+	video_unregister_device(&up3dvideo_ctx.vid_cap_dev);
 
 unreg_dev:
 	v4l2_device_put(&up3dvideo_ctx.v4l2_dev);
@@ -325,6 +337,7 @@ irq_ext:
 }
 static int up3d_video_pdrv_remove(struct platform_device *dev)
 {
+	sysfs_remove_group(&dev->dev.kobj, &up3d_attr_group);
 	memunmap(up3dvideo_ctx.ddr_addr);
 	devm_free_irq(&dev->dev, platform_get_irq(dev, 0), NULL);
 	video_unregister_device(&up3dvideo_ctx.vid_cap_dev);

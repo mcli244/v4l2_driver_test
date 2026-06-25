@@ -13,3 +13,4 @@ Module.symvers
 modules.order
 up3d610.ko
 .vscode/settings.json
+*.ko

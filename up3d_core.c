@@ -215,7 +215,7 @@ static int _vb_queue_init(struct vb2_queue *q, struct up3d_video_ctx *ctx)
 	q->ops = &up3d_vb2_ops,
 	q->mem_ops = &vb2_vmalloc_memops;
 	q->timestamp_flags = V4L2_BUF_FLAG_TIMESTAMP_MONOTONIC;
-	q->min_buffers_needed = 2;
+	// q->min_buffers_needed = 2;
 	q->lock = &ctx->mutex;
 	q->drv_priv = ctx;
 
@@ -348,12 +348,12 @@ irq_ext:
 
 	return -ENOMEM;
 }
-static int up3d_video_pdrv_remove(struct platform_device *dev)
+static void up3d_video_pdrv_remove(struct platform_device *dev)
 {
 	struct up3d_video_ctx *ctx = platform_get_drvdata(dev);
 
 	if (!ctx)
-		return -EINVAL;
+		return;
 
 	debugfs_remove_recursive(ctx->debugfs_root);
     ctx->debugfs_root = NULL;
@@ -362,8 +362,6 @@ static int up3d_video_pdrv_remove(struct platform_device *dev)
 	devm_free_irq(&dev->dev, platform_get_irq(dev, 0), NULL);
 	video_unregister_device(&ctx->vid_cap_dev);
 	v4l2_device_put(&ctx->v4l2_dev);
-
-	return 0;
 }
 
 static const struct of_device_id pl_cap_intc_of_match[] = {

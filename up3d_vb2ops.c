@@ -1,8 +1,8 @@
 #include "up3d_vb2ops.h"
 #include "up3d.h"
 #include <linux/timer.h>
-#include <media/videobuf-core.h>
-#include <media/videobuf-vmalloc.h>
+// #include <media/videobuf-core.h>
+// #include <media/videobuf-vmalloc.h>
 
 // static struct up3d_video_ctx *_g_ctx;
 
@@ -12,6 +12,9 @@
 #define UP3D_STA_RUN 1
 #define UP3D_STA_PAUSE 2
 static int up3d_status = UP3D_STA_STOP;
+
+// 定时器触发数据填充
+#define TIMER_TRIGGER_FILL 1
 
 static void up3d_vb2_tasklet_handler(unsigned long data);
 static DECLARE_TASKLET_OLD(up3d_vb2_tasklet, up3d_vb2_tasklet_handler);
@@ -44,8 +47,21 @@ static void _up3d_vb2_fill_patch(struct up3d_video_ctx *_g_ctx)
 				{
 					if (_g_ctx->ddr_addr)
 					{
-						// memcpy(p, _g_ctx->img_addrs[_g_ctx->img_index] + _g_ctx->cur_v4l2_format.fmt.pix.sizeimage * i, _g_ctx->cur_v4l2_format.fmt.pix.sizeimage);
-						memcpy(p, _g_ctx->img_addrs[_g_ctx->img_index], _g_ctx->cur_v4l2_format.fmt.pix.sizeimage);
+						// memcpy(p, _g_ctx->img_addrs[_g_ctx->img_index], _g_ctx->cur_v4l2_format.fmt.pix.sizeimage);
+					// 填充大块条纹数据，根据宽高（更大块的：每8行一组切换，减少交替次数）
+					{
+						uint32_t width = _g_ctx->cur_v4l2_format.fmt.pix.width;
+						uint32_t height = _g_ctx->cur_v4l2_format.fmt.pix.height;
+						uint8_t *dst = p;
+						uint32_t row, blk_size = 8;
+						uint8_t value;
+
+						for (row = 0; row < height; row++) {
+							// 每8行为一块交替
+							value = ((row / blk_size) % 2 == 0) ? 0xFF : 0x00;
+							memset(dst + row * width, value, width);
+						}
+					}
 					}
 					else
 					{
@@ -184,11 +200,23 @@ static void up3d_buf_queue(struct vb2_buffer *vb)
 	ctx->device_info.vb_free++;
 }
 
+#ifdef TIMER_TRIGGER_FILL
+static void up3d_timer_callback(struct timer_list *t);
+#endif
+
 static int up3d_start_streaming(struct vb2_queue *q, unsigned int count)
 {
 	struct up3d_vb2_buf *up3d_vb, *tmp;
 	struct up3d_video_ctx *ctx = vb2_get_drv_priv(q);
 
+#ifdef TIMER_TRIGGER_FILL
+	// 启动定时器方式填充，33ms周期
+	if (!timer_pending(&ctx->stream_timer)) {
+		timer_setup(&ctx->stream_timer, up3d_timer_callback, 0);
+		ctx->stream_timer.expires = jiffies + msecs_to_jiffies(33);
+		add_timer(&ctx->stream_timer);
+	}
+#else
 	if (up3d_status == UP3D_STA_PAUSE)
 	{
 		enable_irq(ctx->irq); // TODO: 后续应该是通过AXI-IIC通知FPGA开始产生中断
@@ -214,21 +242,64 @@ static int up3d_start_streaming(struct vb2_queue *q, unsigned int count)
 		ctx->device_info.vb_free = ctx->device_info.vb_total;
 		ctx->device_info.vb_free_min = ctx->device_info.vb_total;
 	}
-	else
-	{
-		// do nothing
-	}
+	// timer分支下这里其实啥也不做，只是设置status/统计信息
+#endif
 
+#if defined(TIMER_TRIGGER_FILL)
+	up3d_status = UP3D_STA_RUN;
+	ctx->device_info.irq_is_disable = 0;
 	ctx->device_info.status = up3d_status;
+	ctx->device_info.vb_total = 0;
+	list_for_each_entry_safe(up3d_vb, tmp, &ctx->vb_queue_active, list)
+	{
+		ctx->device_info.vb_total++;
+	}
+	ctx->device_info.vb_free = ctx->device_info.vb_total;
+	ctx->device_info.vb_free_min = ctx->device_info.vb_total;
+#else
+	ctx->device_info.status = up3d_status;
+#endif
 
 	return 0;
 }
+
+#ifdef TIMER_TRIGGER_FILL
+// 定时器回调，33ms一次填充数据
+static void up3d_timer_callback(struct timer_list *t)
+{
+	struct up3d_video_ctx *ctx = from_timer(ctx, t, stream_timer);
+
+	// 主动填充数据（原本由中断驱动 tasklet 触发）
+	_up3d_vb2_fill_patch(ctx);
+
+	// 重新启动定时触发
+	ctx->stream_timer.expires = jiffies + msecs_to_jiffies(33);
+	add_timer(&ctx->stream_timer);
+}
+#endif
 
 static void up3d_stop_streaming(struct vb2_queue *q)
 {
 	struct up3d_vb2_buf *up3d_vb, *tmp;
 	struct up3d_video_ctx *ctx = vb2_get_drv_priv(q);
 
+#if defined(TIMER_TRIGGER_FILL)
+	if (up3d_status == UP3D_STA_RUN)
+	{
+		// 停止定时器分支
+		del_timer_sync(&ctx->stream_timer);
+
+		up3d_status = UP3D_STA_PAUSE;
+		ctx->device_info.status = up3d_status;
+
+		list_for_each_entry_safe(up3d_vb, tmp, &ctx->vb_queue_active, list)
+		{
+			list_del(&up3d_vb->list);
+			vb2_buffer_done(&up3d_vb->vb.vb2_buf, VB2_BUF_STATE_ERROR);
+		}
+		ctx->device_info.irq_is_disable = 1;
+	}
+#else
 	if (up3d_status == UP3D_STA_RUN)
 	{
 		// disable_irq_nosync(ctx->irq);	  // TODO: 后续应该是通过AXI-IIC通知FPGA停止产生中断
@@ -243,6 +314,7 @@ static void up3d_stop_streaming(struct vb2_queue *q)
 		}
 		ctx->device_info.irq_is_disable = 1;
 	}
+#endif
 }
 
 static void up3d_wait_prepare(struct vb2_queue *q)

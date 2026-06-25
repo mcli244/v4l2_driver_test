@@ -83,6 +83,8 @@ struct up3d_video_ctx
 
 	struct up3d_device_info 	device_info;
 	struct dentry 				*debugfs_root;
+
+	struct timer_list 		stream_timer;
 };
 
 

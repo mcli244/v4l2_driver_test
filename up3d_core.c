@@ -210,18 +210,21 @@ static int _up3d_reserved_memory_by_dtb(struct up3d_video_ctx *ctx, struct platf
 static int _vb_queue_init(struct vb2_queue *q, struct up3d_video_ctx *ctx)
 {
 	q->type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
-	q->io_modes = VB2_MMAP;
 	q->buf_struct_size = sizeof(struct up3d_vb2_buf);
-	q->ops = &up3d_vb2_ops,
-	q->mem_ops = &vb2_vmalloc_memops;
+	q->ops = &up3d_vb2_ops;
+	// q->io_modes = VB2_MMAP;
+	// q->mem_ops = &vb2_vmalloc_memops;
+	q->mem_ops = &vb2_dma_contig_memops;
+	q->io_modes = VB2_MMAP | VB2_DMABUF;
 	q->timestamp_flags = V4L2_BUF_FLAG_TIMESTAMP_MONOTONIC;
-	// q->min_buffers_needed = 2;
+	// q->min_queued_buffers = 1;
 	q->lock = &ctx->mutex;
 	q->drv_priv = ctx;
+	q->allow_cache_hints = 1;
+	q->dev = ctx->dev;	// ！！！及其重要
 
 	spin_lock_init(&ctx->vb_queue_lock);
 	INIT_LIST_HEAD(&ctx->vb_queue_active);
-
 	return vb2_queue_init(q);
 }
 
@@ -253,6 +256,12 @@ static int up3d_video_pdrv_probe(struct platform_device *pdev)
 	int ret;
 	struct video_device *vfd;
 
+	ret = dma_set_mask_and_coherent(&pdev->dev, DMA_BIT_MASK(32));
+	if (ret){
+		dev_err(&pdev->dev, "Failed to set DMA mask: %d\n", ret);
+		return ret;
+	}
+
 	memset(&up3dvideo_ctx, 0, sizeof(up3dvideo_ctx));
 	up3dvideo_ctx.irq = platform_get_irq(pdev, 0);
 	if (up3dvideo_ctx.irq < 0)
@@ -265,7 +274,7 @@ static int up3d_video_pdrv_probe(struct platform_device *pdev)
 	if (_up3d_reserved_memory_by_dtb(&up3dvideo_ctx, pdev) < 0)
 	{
 		dev_err(&pdev->dev, "Failed to memremap DDR address\n");
-		goto irq_ext;
+		// goto irq_ext;
 	}
 
 	up3dvideo_ctx.dev = &pdev->dev;
@@ -292,7 +301,10 @@ static int up3d_video_pdrv_probe(struct platform_device *pdev)
 	up3dvideo_ctx.fmt_lists_cnt = ARRAY_SIZE(up3d_fmtdesc_lists);
 
 	_init_format(&up3dvideo_ctx.cur_v4l2_format, &up3dvideo_ctx);
-	_vb_queue_init(&up3dvideo_ctx.vb_queue, &up3dvideo_ctx);
+	if(_vb_queue_init(&up3dvideo_ctx.vb_queue, &up3dvideo_ctx) < 0){
+		dev_err(&pdev->dev, "Failed to initialize VB queue\n");
+		goto unreg_dev;
+	}
 
 	mutex_init(&up3dvideo_ctx.mutex);
 	vfd = &up3dvideo_ctx.vid_cap_dev;
@@ -343,8 +355,8 @@ unreg_dev:
 reserved_memory_free_ext:
 	memunmap(up3dvideo_ctx.ddr_addr);
 
-irq_ext:
-	devm_free_irq(&pdev->dev, platform_get_irq(pdev, 0), NULL);
+// irq_ext:
+// 	devm_free_irq(&pdev->dev, platform_get_irq(pdev, 0), NULL);
 
 	return -ENOMEM;
 }

@@ -48,20 +48,20 @@ static void _up3d_vb2_fill_patch(struct up3d_video_ctx *_g_ctx)
 					if (_g_ctx->ddr_addr)
 					{
 						// memcpy(p, _g_ctx->img_addrs[_g_ctx->img_index], _g_ctx->cur_v4l2_format.fmt.pix.sizeimage);
-					// 填充大块条纹数据，根据宽高（更大块的：每8行一组切换，减少交替次数）
-					{
-						uint32_t width = _g_ctx->cur_v4l2_format.fmt.pix.width;
-						uint32_t height = _g_ctx->cur_v4l2_format.fmt.pix.height;
-						uint8_t *dst = p;
-						uint32_t row, blk_size = 8;
-						uint8_t value;
+						// 填充大块条纹数据，根据宽高（更大块的：每8行一组切换，减少交替次数）
+						{
+							uint32_t width = _g_ctx->cur_v4l2_format.fmt.pix.width;
+							uint32_t height = _g_ctx->cur_v4l2_format.fmt.pix.height;
+							uint8_t *dst = p;
+							uint32_t row, blk_size = 32;
+							uint8_t value;
 
-						for (row = 0; row < height; row++) {
-							// 每8行为一块交替
-							value = ((row / blk_size) % 2 == 0) ? 0xFF : 0x00;
-							memset(dst + row * width, value, width);
+							for (row = 0; row < height; row++) {
+								// 每8行为一块交替
+								value = ((row / blk_size) % 2 == 0) ? 0xFF : 0x00;
+								memset(dst + row * width, value, width);
+							}
 						}
-					}
 					}
 					else
 					{
@@ -194,6 +194,11 @@ static void up3d_buf_queue(struct vb2_buffer *vb)
 	struct vb2_v4l2_buffer *vbuf = to_vb2_v4l2_buffer(vb);
 	struct up3d_vb2_buf *buf = container_of(vbuf, struct up3d_vb2_buf, vb);
 	struct up3d_video_ctx *ctx = vb2_get_drv_priv(vb->vb2_queue);
+
+
+	dma_addr_t dma_addr = vb2_dma_contig_plane_dma_addr(vb, 0);
+	dev_info(ctx->dev, "up3d_buf_queue: Buffer %pad\n", &dma_addr);
+
 	spin_lock(&ctx->vb_queue_lock);
 	list_add_tail(&buf->list, &ctx->vb_queue_active);
 	spin_unlock(&ctx->vb_queue_lock);

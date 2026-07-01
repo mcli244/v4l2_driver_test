@@ -10,6 +10,6 @@ clean:
 	rm .*.cmd *.mod.*
 	rm Module.symvers modules.order
 
-up800w_v4l2-objs := up3d_core.o up3d_ioctl.o up3d_vb2ops.o up3d_sysfs.o
+up800w_v4l2-objs := up3d_core.o up3d_ioctl.o up3d_vb2ops.o up3d_sysfs.o up3d_cpu_test.o
 
 obj-m += up800w_v4l2.o

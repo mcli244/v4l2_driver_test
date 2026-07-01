@@ -14,7 +14,7 @@
 static int up3d_status = UP3D_STA_STOP;
 
 // 定时器触发数据填充
-#define TIMER_TRIGGER_FILL 1
+// #define TIMER_TRIGGER_FILL
 
 static void up3d_vb2_tasklet_handler(unsigned long data);
 static DECLARE_TASKLET_OLD(up3d_vb2_tasklet, up3d_vb2_tasklet_handler);
@@ -30,7 +30,7 @@ static void _up3d_vb2_fill_patch(struct up3d_video_ctx *_g_ctx)
 
 	spin_lock_irqsave(&_g_ctx->vb_queue_lock, flags);
 
-	for (i = 0; i < 2; i++)
+	for (i = 0; i < 1; i++)
 	{
 		if (!list_empty(&_g_ctx->vb_queue_active))
 		{
@@ -56,11 +56,12 @@ static void _up3d_vb2_fill_patch(struct up3d_video_ctx *_g_ctx)
 							uint32_t row, blk_size = 32;
 							uint8_t value;
 
-							for (row = 0; row < height; row++) {
-								// 每8行为一块交替
-								value = ((row / blk_size) % 2 == 0) ? 0xFF : 0x00;
-								memset(dst + row * width, value, width);
-							}
+							// for (row = 0; row < height; row++) {
+							// 	// 每8行为一块交替
+							// 	value = ((row / blk_size) % 2 == 0) ? 0xFF : 0x00;
+							// 	memset(dst + row * width, value, width);
+							// }
+							memcpy(dst, _g_ctx->ddr_addr + 2*1024*1024, _g_ctx->cur_v4l2_format.fmt.pix.sizeimage);
 						}
 					}
 					else
@@ -196,8 +197,8 @@ static void up3d_buf_queue(struct vb2_buffer *vb)
 	struct up3d_video_ctx *ctx = vb2_get_drv_priv(vb->vb2_queue);
 
 
-	dma_addr_t dma_addr = vb2_dma_contig_plane_dma_addr(vb, 0);
-	dev_info(ctx->dev, "up3d_buf_queue: Buffer %pad\n", &dma_addr);
+	// dma_addr_t dma_addr = vb2_dma_contig_plane_dma_addr(vb, 0);
+	// dev_info(ctx->dev, "up3d_buf_queue: Buffer %pad\n", &dma_addr);
 
 	spin_lock(&ctx->vb_queue_lock);
 	list_add_tail(&buf->list, &ctx->vb_queue_active);

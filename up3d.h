@@ -7,6 +7,7 @@
 #include <linux/printk.h>
 #include <linux/kernel.h>
 #include <linux/debugfs.h>
+#include "up3d_cpu_test.h"
 
 #define WIDTH_MAX	1920
 #define HEIGHT_MAX	1080

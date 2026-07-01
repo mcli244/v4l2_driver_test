@@ -40,11 +40,14 @@
 #include <linux/of_address.h>
 #include <linux/io.h>
 #include <linux/of_reserved_mem.h>
+#include <linux/of_irq.h>
+#include <linux/irq.h>
 
 #include "up3d.h"
 #include "up3d_ioctl.h"
 #include "up3d_vb2ops.h"
 #include "up3d_sysfs.h"
+#include "up3d_cpu_test.h"
 
 #define VID_MODULE_NAME "up3d_vid"
 
@@ -84,32 +87,47 @@ static void my_v4l2_release(struct v4l2_device *v4l2_dev)
 {
 }
 
+/* 中断处理函数 */
+static int irq_cnt = 0;
+static irqreturn_t pl_cap_intc_irq_handler(int irq, void *dev_id)
+{
+    // printk(KERN_INFO "PL CAP INTC: Interrupt Triggered! IRQ = %d irq_cnt:%d\n", irq, irq_cnt++);
+
+    /* 如果 PL 端有状态寄存器，需要清除中断状态，否则可能会触发死循环 */
+    // void __iomem *base = dev_id;
+    // writel(0x1, base + STATUS_REG_OFFSET);  // 例：清除中断标志
+    return IRQ_HANDLED; 
+}
+
 static int _up3d_reserved_memory_by_dtb(struct up3d_video_ctx *ctx, struct platform_device *pdev)
 {
 	/*
-		reserved-memory {  // ✅ 必须在根节点下
-			#address-cells = <1>;
-			#size-cells = <1>;
+		reserved-memory {
+			#address-cells = <2>;
+			#size-cells = <2>;
 			ranges;
 
-			reserved: buffer@10000000 {
-				compatible = "shared-dma-pool";
-				reg = <0x10000000 0x01000000>;  // 物理地址 0x10000000，大小 16MB
+			my_region: buffer@8a100000 {
+				reg = <0x0 0x8a100000 0x0 0x00400000>;
 				no-map;
 				// 图像宽度 图像高度 每个像素占用字节数
-				img-info = <416 480 1>;
+				img-info = <832 608 1>;
 				// 起始地址 间隔大小 总数量
-				img-buffers = <0 0x100000 15>;
+				img-buffers = <0 0x100000 1>;
 			};
 		};
 
-		pl_cap_intc: cap-intc@0 {
+		pl_cap_intc: cap-intc@40000500{
 			compatible = "up3d610,cap-intc";
 			status = "okay";
 			interrupt-names = "pl-cap-intc";
-			interrupt-parent = <&intc>;
-			interrupts = <0 32 IRQ_TYPE_EDGE_RISING>;
-			memory-region = <&reserved>;
+			interrupt-parent = <&plic>;
+			interrupts = <129>;
+
+			memory-region = <&my_region>;
+
+			completed-gpios = <&gpio2 24 GPIO_ACTIVE_HIGH>;
+			reg = <0x0 0x40000500 0x0 0x100>;
 		};
 	*/
 	struct resource res;
@@ -203,7 +221,6 @@ static int _up3d_reserved_memory_by_dtb(struct up3d_video_ctx *ctx, struct platf
 		return -EINVAL;
 	}
 	of_node_put(np);
-
 	return 0;
 }
 
@@ -247,8 +264,6 @@ const struct v4l2_file_operations up3d_v4l2_fops = {
 	.mmap = vb2_fop_mmap,
 	.unlocked_ioctl = video_ioctl2,
 };
-
-
 
 static int up3d_video_pdrv_probe(struct platform_device *pdev)
 {
@@ -325,6 +340,12 @@ static int up3d_video_pdrv_probe(struct platform_device *pdev)
 		goto unreg_dev;
 	}
 
+	ret = up3d_cpu_test_init(pdev);
+	if (ret < 0) {
+		dev_err(&pdev->dev, "Failed to initialize cpu test\n");
+		goto unreg_dev;
+	}
+
 	/* 在 sysfs 创建属性组 */
 	platform_set_drvdata(pdev, &up3dvideo_ctx);
     ret = sysfs_create_group(&pdev->dev.kobj, &up3d_attr_group);
@@ -367,11 +388,13 @@ static void up3d_video_pdrv_remove(struct platform_device *dev)
 	if (!ctx)
 		return;
 
+	up3d_cpu_test_exit(dev);
+
 	debugfs_remove_recursive(ctx->debugfs_root);
     ctx->debugfs_root = NULL;
 	sysfs_remove_group(&dev->dev.kobj, &up3d_attr_group);
 	memunmap(ctx->ddr_addr);
-	devm_free_irq(&dev->dev, platform_get_irq(dev, 0), NULL);
+	// devm_free_irq(&dev->dev, platform_get_irq(dev, 0), NULL);
 	video_unregister_device(&ctx->vid_cap_dev);
 	v4l2_device_put(&ctx->v4l2_dev);
 }

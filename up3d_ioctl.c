@@ -12,6 +12,7 @@ static const struct v4l2_frmsize_discrete rgb24_sizes[] = {
 static const struct v4l2_frmsize_discrete grey_sizes[] = {
 	{416, 480},
 	{640, 480},
+	{832, 608},
 };
 
 /* 列举支持哪种格式 */

@@ -18,6 +18,50 @@
 
 static struct up3d_cpu_test_dev_t up3d_cpu_test_dev;
 
+static void get_algo_params(struct up3d_cpu_test_dev_t *up3d_cpu_test_dev, struct up3d_algo_params_t *algo_params)
+{
+	algo_params->min_contrast = readl_relaxed(up3d_cpu_test_dev->algo_base_addr + MIN_CONTRAST_REG);
+	algo_params->mean_offset = readl_relaxed(up3d_cpu_test_dev->algo_base_addr + MEAN_OFFSET_REG);
+	algo_params->high_level = readl_relaxed(up3d_cpu_test_dev->algo_base_addr + HIGH_LEVEL_REG);
+	algo_params->min_peak = readl_relaxed(up3d_cpu_test_dev->algo_base_addr + MIN_PEAK_REG);
+	algo_params->min_value = readl_relaxed(up3d_cpu_test_dev->algo_base_addr + MIN_VALUE_REG);
+	algo_params->janus_threshold = readl_relaxed(up3d_cpu_test_dev->algo_base_addr + JANUS_THRESHOLD_REG);
+}
+
+static void set_algo_params(struct up3d_cpu_test_dev_t *up3d_cpu_test_dev, struct up3d_algo_params_t *algo_params)
+{
+	writel_relaxed(algo_params->min_contrast, up3d_cpu_test_dev->algo_base_addr + MIN_CONTRAST_REG);
+	writel_relaxed(algo_params->mean_offset, up3d_cpu_test_dev->algo_base_addr + MEAN_OFFSET_REG);
+	writel_relaxed(algo_params->high_level, up3d_cpu_test_dev->algo_base_addr + HIGH_LEVEL_REG);
+	writel_relaxed(algo_params->min_peak, up3d_cpu_test_dev->algo_base_addr + MIN_PEAK_REG);
+	writel_relaxed(algo_params->min_value, up3d_cpu_test_dev->algo_base_addr + MIN_VALUE_REG);
+	writel_relaxed(algo_params->janus_threshold, up3d_cpu_test_dev->algo_base_addr + JANUS_THRESHOLD_REG);
+}
+
+static void show_buf_info(struct up3d_cpu_test_dev_t *up3d_camera)
+{
+	dev_info(up3d_camera->dev, "algo_base_addr: 0x%pK -- 0x%x\n", 
+		up3d_camera->algo_base_addr, UP3D_CAMERA_ALGO_PARAM_REG_BASE);
+	dev_info(up3d_camera->dev, "min_contrast: 0x%x(%d)\n", 
+		readl_relaxed(up3d_camera->algo_base_addr + MIN_CONTRAST_REG), 
+		readl_relaxed(up3d_camera->algo_base_addr + MIN_CONTRAST_REG));
+	dev_info(up3d_camera->dev, "mean_offset: 0x%x(%d)\n", 
+		readl_relaxed(up3d_camera->algo_base_addr + MEAN_OFFSET_REG), 
+		readl_relaxed(up3d_camera->algo_base_addr + MEAN_OFFSET_REG));
+	dev_info(up3d_camera->dev, "high_level: 0x%x(%d)\n", 
+		readl_relaxed(up3d_camera->algo_base_addr + HIGH_LEVEL_REG), 
+		readl_relaxed(up3d_camera->algo_base_addr + HIGH_LEVEL_REG));
+	dev_info(up3d_camera->dev, "min_peak: 0x%x(%d)\n", 
+		readl_relaxed(up3d_camera->algo_base_addr + MIN_PEAK_REG), 
+		readl_relaxed(up3d_camera->algo_base_addr + MIN_PEAK_REG));
+	dev_info(up3d_camera->dev, "min_value: 0x%x(%d)\n", 
+		readl_relaxed(up3d_camera->algo_base_addr + MIN_VALUE_REG), 
+		readl_relaxed(up3d_camera->algo_base_addr + MIN_VALUE_REG));
+	dev_info(up3d_camera->dev, "janus_threshold: 0x%x(%d)\n", 
+		readl_relaxed(up3d_camera->algo_base_addr + JANUS_THRESHOLD_REG), 
+		readl_relaxed(up3d_camera->algo_base_addr + JANUS_THRESHOLD_REG));
+}
+
 static struct up3d_cpu_test_dev_t *file_to_up3d_test_dev(struct file *file)
 {
 	return container_of(file->private_data, struct up3d_cpu_test_dev_t, miscdev);
@@ -58,6 +102,7 @@ static int up3d_cpu_test_mmap(struct file *file, struct vm_area_struct *vma)
 static long up3d_cpu_test_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 {
 	struct up3d_camera_buf_info buf_info;
+	struct up3d_algo_params_t algo_params;
 	__u32 val;
 
 	struct up3d_cpu_test_dev_t *up3d_cpu_test_dev = file_to_up3d_test_dev(file);
@@ -76,6 +121,18 @@ static long up3d_cpu_test_ioctl(struct file *file, unsigned int cmd, unsigned lo
 		if (copy_from_user(&val, (void __user *)arg, sizeof(val)))
 			return -EFAULT;
 		gpiod_set_value_cansleep(up3d_cpu_test_dev->completed_gpio, val ? 1 : 0);
+		break;
+	case UP3D_CAMERA_GET_ALGO_PARAMS:
+		get_algo_params(up3d_cpu_test_dev, &algo_params);
+		if (copy_to_user((void __user *)arg, &algo_params, sizeof(algo_params)))
+			return -EFAULT;
+		show_buf_info(up3d_cpu_test_dev);
+		break;
+	case UP3D_CAMERA_SET_ALGO_PARAMS:
+		if (copy_from_user(&algo_params, (void __user *)arg, sizeof(algo_params)))
+			return -EFAULT;
+		set_algo_params(up3d_cpu_test_dev, &algo_params);
+		show_buf_info(up3d_cpu_test_dev);
 		break;
 	default:
 		return -ENOTTY;
@@ -101,6 +158,7 @@ int up3d_cpu_test_init(struct platform_device *pdev)
         dev_err(&pdev->dev, "Failed to allocate memory\n");
         return -ENOMEM;
     }
+	up3d_cpu_test->dev = &pdev->dev;
 
 	// up3d_cpu_test->dev = &pdev->dev;
 	// dev_set_drvdata(&pdev->dev, up3d_cpu_test);
@@ -130,6 +188,15 @@ int up3d_cpu_test_init(struct platform_device *pdev)
 	}
 	gpiod_set_value_cansleep(up3d_cpu_test->completed_gpio, 0);
 
+	up3d_cpu_test->algo_base_addr = ioremap(UP3D_CAMERA_ALGO_PARAM_REG_BASE, 32);
+	if (!up3d_cpu_test->algo_base_addr) {
+		dev_err(&pdev->dev, "Failed to remap algo base address\n");
+		ret = -ENOMEM;
+		goto free_up3d_cpu_test;
+	}
+
+	show_buf_info(up3d_cpu_test);
+
 	up3d_cpu_test->miscdev.name = "up3d-up800w-test";
 	up3d_cpu_test->miscdev.minor = MISC_DYNAMIC_MINOR;
 	up3d_cpu_test->miscdev.fops = &up3d_cpu_test_fops;
@@ -157,4 +224,14 @@ void up3d_cpu_test_exit(struct platform_device *pdev)
 	misc_deregister(&up3d_cpu_test->miscdev);
 	gpiod_set_value_cansleep(up3d_cpu_test->completed_gpio, 0);
 	// devm_kfree(&pdev->dev, up3d_cpu_test);
+}
+
+void up3d_cpu_test_stop(void)
+{
+	gpiod_set_value_cansleep(up3d_cpu_test_dev.completed_gpio, 0);
+}
+
+void up3d_cpu_test_start(void)
+{
+	gpiod_set_value_cansleep(up3d_cpu_test_dev.completed_gpio, 1);
 }

@@ -86,6 +86,7 @@ struct up3d_video_ctx
 	struct dentry 				*debugfs_root;
 
 	struct timer_list 		stream_timer;
+	struct gpio_desc *completed_gpio;
 };
 
 

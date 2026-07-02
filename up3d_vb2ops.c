@@ -1,6 +1,7 @@
 #include "up3d_vb2ops.h"
 #include "up3d.h"
 #include <linux/timer.h>
+#include <linux/delay.h>
 // #include <media/videobuf-core.h>
 // #include <media/videobuf-vmalloc.h>
 
@@ -308,6 +309,8 @@ static void up3d_stop_streaming(struct vb2_queue *q)
 #else
 	if (up3d_status == UP3D_STA_RUN)
 	{
+		up3d_cpu_test_stop();
+		msleep(10);
 		// disable_irq_nosync(ctx->irq);	  // TODO: 后续应该是通过AXI-IIC通知FPGA停止产生中断
 		disable_irq(ctx->irq);	  // TODO: 后续应该是通过AXI-IIC通知FPGA停止产生中断
 		up3d_status = UP3D_STA_PAUSE; // note: 这里没有完全释放IRQ，只是暂停了中断，释放中断放到remove中

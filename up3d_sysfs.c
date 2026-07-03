@@ -9,21 +9,6 @@
 #include "up3d_sysfs.h"
 #include "up3d.h"
 
-
-/*
-struct up3d_device_info {
-    uint8_t 	status;
-	uint8_t 	irq_is_disable;
-	uint32_t 	irq_count;
-	uint16_t 	vb_total;
-	uint16_t 	vb_free;
-	uint16_t 	vb_free_min;
-	uint16_t 	vb_queue_overflow;
-	struct v4l2_format 		cur_v4l2_format;
-};
-*/
-
-
 static ssize_t generic_show(struct device *dev,
                             struct device_attribute *attr, char *buf, 
                             const char *field_name)
@@ -34,11 +19,11 @@ static ssize_t generic_show(struct device *dev,
         return -EINVAL;
 
     if (strcmp(field_name, "status") == 0)
-        return sprintf(buf, "%s\n", ctx->device_info.status ? "RUN" : "STOP");
+        return sprintf(buf, "%s\n", atomic_read(&ctx->device_info.status) == UP3D_STA_RUN ? "RUN" : "STOP");
     else if (strcmp(field_name, "irq_is_disable") == 0)
-        return sprintf(buf, "%s\n", ctx->device_info.irq_is_disable ? "DISABLE" : "ENABLE");
+        return sprintf(buf, "%s\n", atomic_read(&ctx->device_info.irq_is_disable) == 1 ? "DISABLE" : "ENABLE");
     else if (strcmp(field_name, "irq_count") == 0)
-        return sprintf(buf, "%d\n", ctx->device_info.irq_count);
+        return sprintf(buf, "%d\n", atomic_read(&ctx->device_info.irq_count));
     else if (strcmp(field_name, "vb_total") == 0)
         return sprintf(buf, "%d\n", ctx->device_info.vb_total);
     else if (strcmp(field_name, "vb_free") == 0)
@@ -108,8 +93,8 @@ static ssize_t up3d_video_debugfs_read(struct file *file, char __user *buf,
 
     len = snprintf(tmp, sizeof(tmp), "status:%d  irq_count:%d vb_total:%d vb_free:%d vb_free_min:%d vb_queue_overflow:%d \n"
 		"pixelformat:0x%x %d x %d\n", 
-		ctx->device_info.status, 
-		ctx->device_info.irq_count,
+		atomic_read(&ctx->device_info.status), 
+		atomic_read(&ctx->device_info.irq_count),
 		ctx->device_info.vb_total,
 		ctx->device_info.vb_free,
 		ctx->device_info.vb_free_min,

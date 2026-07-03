@@ -2,23 +2,14 @@
 #include "up3d.h"
 #include <linux/timer.h>
 #include <linux/delay.h>
-// #include <media/videobuf-core.h>
-// #include <media/videobuf-vmalloc.h>
-
-// static struct up3d_video_ctx *_g_ctx;
+#include "up3d_fpga.h"
 
 #define MY_SOFTIRQ_VEC 26
-
-#define UP3D_STA_STOP 0
-#define UP3D_STA_RUN 1
-#define UP3D_STA_PAUSE 2
-static int up3d_status = UP3D_STA_STOP;
 
 // 定时器触发数据填充
 // #define TIMER_TRIGGER_FILL
 
-static void up3d_vb2_tasklet_handler(unsigned long data);
-static DECLARE_TASKLET_OLD(up3d_vb2_tasklet, up3d_vb2_tasklet_handler);
+void up3d_vb2_tasklet_handler(unsigned long data);
 
 static void _up3d_vb2_fill_patch(struct up3d_video_ctx *_g_ctx)
 {
@@ -51,11 +42,11 @@ static void _up3d_vb2_fill_patch(struct up3d_video_ctx *_g_ctx)
 						// memcpy(p, _g_ctx->img_addrs[_g_ctx->img_index], _g_ctx->cur_v4l2_format.fmt.pix.sizeimage);
 						// 填充大块条纹数据，根据宽高（更大块的：每8行一组切换，减少交替次数）
 						{
-							uint32_t width = _g_ctx->cur_v4l2_format.fmt.pix.width;
-							uint32_t height = _g_ctx->cur_v4l2_format.fmt.pix.height;
+							// uint32_t width = _g_ctx->cur_v4l2_format.fmt.pix.width;
+							// uint32_t height = _g_ctx->cur_v4l2_format.fmt.pix.height;
 							uint8_t *dst = p;
-							uint32_t row, blk_size = 32;
-							uint8_t value;
+							// uint32_t row, blk_size = 32;
+							// uint8_t value;
 
 							// for (row = 0; row < height; row++) {
 							// 	// 每8行为一块交替
@@ -104,38 +95,65 @@ static void _up3d_vb2_fill_patch(struct up3d_video_ctx *_g_ctx)
 	spin_unlock_irqrestore(&_g_ctx->vb_queue_lock, flags);
 }
 
-static void up3d_vb2_tasklet_handler(unsigned long data)
+void up3d_vb2_tasklet_handler(unsigned long data)
 {
-	struct up3d_video_ctx *ctx = (struct up3d_video_ctx *)data;
+    struct up3d_video_ctx *ctx = (void *)data;
+    struct up3d_vb2_buf *vb;
+    struct up3d_vb2_buf *next;
+    unsigned long flags;
 
-	if (ctx == NULL)
-	{
-		dev_err(ctx->dev, "ctx is NULL\n");
+    if (!ctx)
+        return;
+
+    spin_lock_irqsave(&ctx->vb_queue_lock, flags);
+
+    /* 1. 完成当前 buffer */
+	if(ctx->current_vb != NULL) {
+		dev_err(ctx->dev, "current_vb is not NULL\n");
 		return;
 	}
+    vb = ctx->current_vb;
+    ctx->current_vb = NULL;
 
-	// _up3d_vb2_fill(ctx);
-	_up3d_vb2_fill_patch(ctx);
+    if (vb) {
+        spin_unlock_irqrestore(&ctx->vb_queue_lock, flags);
+        vb->vb.vb2_buf.timestamp = ktime_get_ns();
+        vb->vb.field = V4L2_FIELD_NONE;
+        vb2_buffer_done(&vb->vb.vb2_buf, VB2_BUF_STATE_DONE);
+    } else {
+        spin_unlock_irqrestore(&ctx->vb_queue_lock, flags);
+    }
 
-	// TODO: 按FPGA的约定读取
-	// ctx->img_index++;
-	// if (ctx->img_index >= ctx->img_blk_count)
-	// {
-	// 	ctx->img_index = 0;
-	// }
+    /* 2. 取下一个 buffer */
+    spin_lock_irqsave(&ctx->vb_queue_lock, flags);
+
+    if (list_empty(&ctx->vb_queue_active)) {
+        spin_unlock_irqrestore(&ctx->vb_queue_lock, flags);
+        return;
+    }
+
+    next = list_first_entry(&ctx->vb_queue_active,
+                            struct up3d_vb2_buf,
+                            list);
+
+    list_del_init(&next->list);
+    ctx->current_vb = next;
+
+    spin_unlock_irqrestore(&ctx->vb_queue_lock, flags);
+
+    /* 3. 启动 FPGA */
+	up3d_fpga_ctrl(ctx, 0);
+    up3d_fpga_set_output_image_addr(ctx, vb2_dma_contig_plane_dma_addr(&next->vb.vb2_buf, 0));
+    up3d_fpga_ctrl(ctx, 1);
+
 }
 
 static irqreturn_t pl_cap_intc_irq_handler(int irq, void *dev_id)
 {
 	struct up3d_video_ctx *ctx = (struct up3d_video_ctx *)dev_id;
 
-	if (ctx == NULL)
-		return IRQ_HANDLED;
-
-	up3d_vb2_tasklet.data = (unsigned long)ctx;
-	tasklet_schedule(&up3d_vb2_tasklet);
-
-	ctx->device_info.irq_count++;
+	tasklet_schedule(&ctx->vb2_tasklet);
+	atomic_inc(&ctx->device_info.irq_count);
 
 	return IRQ_HANDLED;
 }
@@ -198,8 +216,8 @@ static void up3d_buf_queue(struct vb2_buffer *vb)
 	struct up3d_video_ctx *ctx = vb2_get_drv_priv(vb->vb2_queue);
 
 
-	// dma_addr_t dma_addr = vb2_dma_contig_plane_dma_addr(vb, 0);
-	// dev_info(ctx->dev, "up3d_buf_queue: Buffer %pad\n", &dma_addr);
+	dma_addr_t dma_addr = vb2_dma_contig_plane_dma_addr(vb, 0);
+	dev_info(ctx->dev, "up3d_buf_queue: Buffer %pad\n", &dma_addr);
 
 	spin_lock(&ctx->vb_queue_lock);
 	list_add_tail(&buf->list, &ctx->vb_queue_active);
@@ -216,6 +234,8 @@ static int up3d_start_streaming(struct vb2_queue *q, unsigned int count)
 	struct up3d_vb2_buf *up3d_vb, *tmp;
 	struct up3d_video_ctx *ctx = vb2_get_drv_priv(q);
 
+	dev_info(ctx->dev, "up3d_start_streaming: ctx %p\n", ctx);
+
 #ifdef TIMER_TRIGGER_FILL
 	// 启动定时器方式填充，33ms周期
 	if (!timer_pending(&ctx->stream_timer)) {
@@ -224,23 +244,25 @@ static int up3d_start_streaming(struct vb2_queue *q, unsigned int count)
 		add_timer(&ctx->stream_timer);
 	}
 #else
-	if (up3d_status == UP3D_STA_PAUSE)
+	if (atomic_read(&ctx->device_info.status) == UP3D_STA_PAUSE)
 	{
 		enable_irq(ctx->irq); // TODO: 后续应该是通过AXI-IIC通知FPGA开始产生中断
-		ctx->device_info.irq_is_disable = 0;
-		up3d_status = UP3D_STA_RUN;
+		atomic_set(&ctx->device_info.irq_is_disable, 0);
+		atomic_set(&ctx->device_info.status, UP3D_STA_RUN);
 	}
-	else if (up3d_status == UP3D_STA_STOP)
+	else if (atomic_read(&ctx->device_info.status) == UP3D_STA_STOP)
 	{
 		/* 申请中断 */
+		dev_info(ctx->dev, "up3d_start_streaming: request IRQ\n");
 		if (devm_request_irq(ctx->dev, ctx->irq, pl_cap_intc_irq_handler, IRQF_TRIGGER_RISING, "pl_cap_intc", ctx))
 		{
 			dev_err(ctx->dev, "Failed to request IRQ\n");
 			return -EINVAL;
 		}
-		up3d_status = UP3D_STA_RUN;
+		atomic_set(&ctx->device_info.status, UP3D_STA_RUN);
 
-		ctx->device_info.irq_is_disable = 0;
+		dev_info(ctx->dev, "up3d_start_streaming: set status to RUN\n");
+		atomic_set(&ctx->device_info.irq_is_disable, 0);
 		ctx->device_info.vb_total = 0;
 		list_for_each_entry_safe(up3d_vb, tmp, &ctx->vb_queue_active, list)
 		{
@@ -248,14 +270,44 @@ static int up3d_start_streaming(struct vb2_queue *q, unsigned int count)
 		}
 		ctx->device_info.vb_free = ctx->device_info.vb_total;
 		ctx->device_info.vb_free_min = ctx->device_info.vb_total;
+
+		dev_info(ctx->dev, "up3d_start_streaming: get one buffer from queue\n");
+		// 从队列里面取一个缓存，写给FPGA
+		{
+			unsigned long flags;
+			struct up3d_vb2_buf *vb;
+			uint32_t dma_addr;
+			
+			spin_lock_irqsave(&ctx->vb_queue_lock, flags);
+			if (list_empty(&ctx->vb_queue_active)) {
+				spin_unlock_irqrestore(&ctx->vb_queue_lock, flags);
+				return -EINVAL;
+			}
+			vb = list_first_entry(&ctx->vb_queue_active,
+								  struct up3d_vb2_buf,
+								  list);
+			list_del_init(&vb->list);
+			ctx->current_vb = vb;
+			spin_unlock_irqrestore(&ctx->vb_queue_lock, flags);
+			
+			dma_addr = vb2_dma_contig_plane_dma_addr(&vb->vb.vb2_buf, 0);
+			if (!dma_addr) {
+				dev_err(ctx->dev, "invalid dma\n");
+				return -EINVAL;
+			}
+			
+			up3d_fpga_ctrl(ctx, 0);
+			up3d_fpga_set_output_image_addr(ctx, dma_addr);
+			up3d_fpga_ctrl(ctx, 1);
+			dev_info(ctx->dev, "up3d_start_streaming: set output image address to 0x%x\n", dma_addr);
+		}
 	}
 	// timer分支下这里其实啥也不做，只是设置status/统计信息
 #endif
 
 #if defined(TIMER_TRIGGER_FILL)
-	up3d_status = UP3D_STA_RUN;
-	ctx->device_info.irq_is_disable = 0;
-	ctx->device_info.status = up3d_status;
+	atomic_set(&ctx->device_info.status, UP3D_STA_RUN);
+	atomic_set(&ctx->device_info.irq_is_disable, 0);
 	ctx->device_info.vb_total = 0;
 	list_for_each_entry_safe(up3d_vb, tmp, &ctx->vb_queue_active, list)
 	{
@@ -264,7 +316,7 @@ static int up3d_start_streaming(struct vb2_queue *q, unsigned int count)
 	ctx->device_info.vb_free = ctx->device_info.vb_total;
 	ctx->device_info.vb_free_min = ctx->device_info.vb_total;
 #else
-	ctx->device_info.status = up3d_status;
+	atomic_set(&ctx->device_info.status, UP3D_STA_RUN);
 #endif
 
 	return 0;
@@ -304,24 +356,23 @@ static void up3d_stop_streaming(struct vb2_queue *q)
 			list_del(&up3d_vb->list);
 			vb2_buffer_done(&up3d_vb->vb.vb2_buf, VB2_BUF_STATE_ERROR);
 		}
-		ctx->device_info.irq_is_disable = 1;
+		atomic_set(&ctx->device_info.irq_is_disable, 1);
 	}
 #else
-	if (up3d_status == UP3D_STA_RUN)
+	if (atomic_read(&ctx->device_info.status) == UP3D_STA_RUN)
 	{
-		up3d_cpu_test_stop();
+		gpiod_set_value_cansleep(ctx->completed_gpio, 0);
 		msleep(10);
 		// disable_irq_nosync(ctx->irq);	  // TODO: 后续应该是通过AXI-IIC通知FPGA停止产生中断
 		disable_irq(ctx->irq);	  // TODO: 后续应该是通过AXI-IIC通知FPGA停止产生中断
-		up3d_status = UP3D_STA_PAUSE; // note: 这里没有完全释放IRQ，只是暂停了中断，释放中断放到remove中
-		ctx->device_info.status = up3d_status;
+		atomic_set(&ctx->device_info.status, UP3D_STA_PAUSE); // note: 这里没有完全释放IRQ，只是暂停了中断，释放中断放到remove中
 		
 		list_for_each_entry_safe(up3d_vb, tmp, &ctx->vb_queue_active, list)
 		{
 			list_del(&up3d_vb->list);
 			vb2_buffer_done(&up3d_vb->vb.vb2_buf, VB2_BUF_STATE_ERROR);
 		}
-		ctx->device_info.irq_is_disable = 1;
+		atomic_set(&ctx->device_info.irq_is_disable, 1);
 	}
 #endif
 }
@@ -338,7 +389,9 @@ static int up3d_buf_init(struct vb2_buffer *vb)
 {
 	struct vb2_v4l2_buffer *vbuf = to_vb2_v4l2_buffer(vb);
 	struct up3d_vb2_buf *buf = container_of(vbuf, struct up3d_vb2_buf, vb);
+	struct up3d_video_ctx *ctx = vb2_get_drv_priv(vb->vb2_queue);
 
+	dev_info(ctx->dev, "up3d_buf_init: Buffer %p, ctx %p\n", buf, ctx);
 	INIT_LIST_HEAD(&buf->list);
 	return 0;
 }

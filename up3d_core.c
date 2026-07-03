@@ -47,56 +47,26 @@
 #include "up3d_ioctl.h"
 #include "up3d_vb2ops.h"
 #include "up3d_sysfs.h"
-#include "up3d_cpu_test.h"
+#include "up3d_fpga.h"
 
 #define VID_MODULE_NAME "up3d_vid"
 
 static struct up3d_video_ctx up3dvideo_ctx;
-struct up3d_fmtdesc up3d_fmtdesc_lists[] =
+static struct up3d_fmtdesc up3d_fmtdesc_lists[] =
+{
 	{
-		{
-			.description = "8:8:8, RGB",
-			.pixel_format = V4L2_PIX_FMT_RGB24,
-			.bytes_per_pixel = 3,
-			.framesize.width = WIDTH_DEF,
-			.framesize.height = HEIGHT_DEF,
-		},
-		{
-			.description = "5:6:5, RGB",
-			.pixel_format = V4L2_PIX_FMT_RGB565,
-			.bytes_per_pixel = 1,
-			.framesize.width = WIDTH_DEF,
-			.framesize.height = HEIGHT_DEF,
-		},
-		{
-			.description = "16  YUV 4:2:2",
-			.pixel_format = V4L2_PIX_FMT_YUYV,
-			.bytes_per_pixel = 1,
-			.framesize.width = WIDTH_DEF,
-			.framesize.height = HEIGHT_DEF,
-		},
-		{
-			.description = "8bit  GREY",
-			.pixel_format = V4L2_PIX_FMT_GREY,
-			.bytes_per_pixel = 1,
-			.framesize.width = 416,
-			.framesize.height = 480,
-		}};
+		.description = "8bit GREY (832x608x3) (left/right/rgb)",
+		.pixel_format = V4L2_PIX_FMT_GREY,
+		.bytes_per_pixel = 1,
+		.framesize.width = 832,
+		.framesize.height = 608*3,
+	}
+};
+
+extern void up3d_vb2_tasklet_handler(unsigned long data);
 
 static void my_v4l2_release(struct v4l2_device *v4l2_dev)
 {
-}
-
-/* 中断处理函数 */
-static int irq_cnt = 0;
-static irqreturn_t pl_cap_intc_irq_handler(int irq, void *dev_id)
-{
-    // printk(KERN_INFO "PL CAP INTC: Interrupt Triggered! IRQ = %d irq_cnt:%d\n", irq, irq_cnt++);
-
-    /* 如果 PL 端有状态寄存器，需要清除中断状态，否则可能会触发死循环 */
-    // void __iomem *base = dev_id;
-    // writel(0x1, base + STATUS_REG_OFFSET);  // 例：清除中断标志
-    return IRQ_HANDLED; 
 }
 
 static int _up3d_reserved_memory_by_dtb(struct up3d_video_ctx *ctx, struct platform_device *pdev)
@@ -166,8 +136,8 @@ static int _up3d_reserved_memory_by_dtb(struct up3d_video_ctx *ctx, struct platf
 		of_node_put(np);
 		return -ENOMEM;
 	}
-	dev_info(dev, "Mapped reserved memory to virtual address: 0x%px - 0x%px  %#x\n",
-			 ctx->ddr_addr, ctx->ddr_addr + size - 1, (int)ctx->ddr_addr);
+	dev_info(dev, "Mapped reserved memory to virtual address: 0x%px - 0x%px \n",
+			 ctx->ddr_addr, ctx->ddr_addr + size - 1);
 
 	prop = of_get_property(np, "img-info", NULL);
 	if (prop)
@@ -247,6 +217,7 @@ static int _vb_queue_init(struct vb2_queue *q, struct up3d_video_ctx *ctx)
 
 static int _init_format(struct v4l2_format *f, struct up3d_video_ctx *ctx)
 {
+	f->type = V4L2_BUF_TYPE_VIDEO_CAPTURE;	// 必须设置，否则后续的ioctl会失败
 	f->fmt.pix.width = ctx->width_def;
 	f->fmt.pix.height = ctx->height_def;
 	f->fmt.pix.pixelformat = ctx->fmt_lists[0].pixel_format;
@@ -286,6 +257,8 @@ static int up3d_video_pdrv_probe(struct platform_device *pdev)
 	}
 	dev_info(&pdev->dev, "PL CAP INTC IRQ: %d\n", up3dvideo_ctx.irq);
 
+	tasklet_init(&up3dvideo_ctx.vb2_tasklet, up3d_vb2_tasklet_handler, (unsigned long)&up3dvideo_ctx);
+
 	if (_up3d_reserved_memory_by_dtb(&up3dvideo_ctx, pdev) < 0)
 	{
 		dev_err(&pdev->dev, "Failed to memremap DDR address\n");
@@ -314,8 +287,8 @@ static int up3d_video_pdrv_probe(struct platform_device *pdev)
 	up3dvideo_ctx.height_def = HEIGHT_DEF;
 	up3dvideo_ctx.fmt_lists = &up3d_fmtdesc_lists[0];
 	up3dvideo_ctx.fmt_lists_cnt = ARRAY_SIZE(up3d_fmtdesc_lists);
-
 	_init_format(&up3dvideo_ctx.cur_v4l2_format, &up3dvideo_ctx);
+
 	if(_vb_queue_init(&up3dvideo_ctx.vb_queue, &up3dvideo_ctx) < 0){
 		dev_err(&pdev->dev, "Failed to initialize VB queue\n");
 		goto unreg_dev;
@@ -340,9 +313,25 @@ static int up3d_video_pdrv_probe(struct platform_device *pdev)
 		goto unreg_dev;
 	}
 
-	ret = up3d_cpu_test_init(pdev);
+	up3dvideo_ctx.input_image.width = 832;
+	up3dvideo_ctx.input_image.height = 608;
+	up3dvideo_ctx.input_image.bytes_per_pixel = 1;
+
+	up3dvideo_ctx.output_images[0].width = 832;
+	up3dvideo_ctx.output_images[0].height = 608;
+	up3dvideo_ctx.output_images[0].bytes_per_pixel = 1;
+
+	up3dvideo_ctx.output_images[1].width = 832;
+	up3dvideo_ctx.output_images[1].height = 608;
+	up3dvideo_ctx.output_images[1].bytes_per_pixel = 1;
+
+	up3dvideo_ctx.output_images[2].width = 832;
+	up3dvideo_ctx.output_images[2].height = 608;
+	up3dvideo_ctx.output_images[2].bytes_per_pixel = 1;
+
+	ret = up3d_fpga_init(&up3dvideo_ctx);
 	if (ret < 0) {
-		dev_err(&pdev->dev, "Failed to initialize cpu test\n");
+		dev_err(&pdev->dev, "Failed to initialize fpga\n");
 		goto unreg_dev;
 	}
 
@@ -388,7 +377,7 @@ static void up3d_video_pdrv_remove(struct platform_device *dev)
 	if (!ctx)
 		return;
 
-	up3d_cpu_test_exit(dev);
+	up3d_fpga_exit(ctx);
 
 	debugfs_remove_recursive(ctx->debugfs_root);
     ctx->debugfs_root = NULL;

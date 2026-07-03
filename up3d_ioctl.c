@@ -3,16 +3,8 @@
 
 #define INPUT_DEVICE_NUMS 1
 
-static const struct v4l2_frmsize_discrete rgb24_sizes[] = {
-	{320, 180},
-	{640, 480},
-	{1280, 720},
-};
-
 static const struct v4l2_frmsize_discrete grey_sizes[] = {
-	{416, 480},
-	{640, 480},
-	{832, 608},
+	{832, 608*3},
 };
 
 /* 列举支持哪种格式 */
@@ -33,7 +25,6 @@ static int up3d_g_fmt_vid_cap(struct file *file, void *fh, struct v4l2_format *f
 {
 	struct up3d_video_ctx *ctx = video_drvdata(file);
 	memcpy(f, &ctx->cur_v4l2_format, sizeof(struct v4l2_format));
-
 	return 0;
 }
 
@@ -50,16 +41,21 @@ static int up3d_try_fmt_vid_cap(struct file *file, void *fh, struct v4l2_format 
 			break;
 	}
 
-	if (index >= ctx->fmt_lists_cnt)
+	if (index >= ctx->fmt_lists_cnt){
+		dev_err(ctx->dev, "index:%d ctx->fmt_lists_cnt:%d f->fmt.pix.pixelformat:0x%x",
+				index, ctx->fmt_lists_cnt, f->fmt.pix.pixelformat);
 		return -EINVAL;
+	}
 
 	field = f->fmt.pix.field;
 	if (field == V4L2_FIELD_ANY)
 	{
+		dev_err(ctx->dev, "field:0x%x", field);
 		field = V4L2_FIELD_INTERLACED;
 	}
 	else if (V4L2_FIELD_INTERLACED != field)
 	{
+		dev_err(ctx->dev, "field:0x%x", field);
 		return -EINVAL;
 	}
 
@@ -137,20 +133,6 @@ static int up3d_enum_framesizes(struct file *file, void *fh,
 
 	switch (ctx->fmt_lists[index].pixel_format)
 	{
-	case V4L2_PIX_FMT_RGB24:
-		if (fsize->index >= ARRAY_SIZE(rgb24_sizes))
-			return -EINVAL;
-		fsize->type = V4L2_FRMSIZE_TYPE_DISCRETE;
-		fsize->discrete = rgb24_sizes[fsize->index];
-		break;
-	case V4L2_PIX_FMT_RGB565:
-	case V4L2_PIX_FMT_YUYV:
-		if (fsize->index > 0)
-			return -EINVAL;
-		fsize->type = V4L2_FRMSIZE_TYPE_DISCRETE;
-		fsize->discrete.width = ctx->fmt_lists[index].framesize.width;
-		fsize->discrete.height = ctx->fmt_lists[index].framesize.height;
-		break;
 	case V4L2_PIX_FMT_GREY:
 		if (fsize->index >= ARRAY_SIZE(grey_sizes))
 			return -EINVAL;

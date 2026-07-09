@@ -63,8 +63,6 @@ static struct up3d_fmtdesc up3d_fmtdesc_lists[] =
 	}
 };
 
-extern void up3d_vb2_tasklet_handler(unsigned long data);
-
 static void my_v4l2_release(struct v4l2_device *v4l2_dev)
 {
 }
@@ -241,7 +239,7 @@ static int up3d_video_pdrv_probe(struct platform_device *pdev)
 	int erron;
 	int ret;
 	struct video_device *vfd;
-
+	
 	ret = dma_set_mask_and_coherent(&pdev->dev, DMA_BIT_MASK(32));
 	if (ret){
 		dev_err(&pdev->dev, "Failed to set DMA mask: %d\n", ret);
@@ -250,6 +248,7 @@ static int up3d_video_pdrv_probe(struct platform_device *pdev)
 
 	memset(&up3dvideo_ctx, 0, sizeof(up3dvideo_ctx));
 	up3dvideo_ctx.irq = platform_get_irq(pdev, 0);
+	up3dvideo_ctx.irq_is_requested = false;
 	if (up3dvideo_ctx.irq < 0)
 	{
 		dev_err(&pdev->dev, "Failed to get IRQ\n");
@@ -258,6 +257,7 @@ static int up3d_video_pdrv_probe(struct platform_device *pdev)
 	dev_info(&pdev->dev, "PL CAP INTC IRQ: %d\n", up3dvideo_ctx.irq);
 
 	tasklet_init(&up3dvideo_ctx.vb2_tasklet, up3d_vb2_tasklet_handler, (unsigned long)&up3dvideo_ctx);
+	INIT_WORK(&up3dvideo_ctx.irq_work, up3d_irq_work_handler);
 
 	if (_up3d_reserved_memory_by_dtb(&up3dvideo_ctx, pdev) < 0)
 	{

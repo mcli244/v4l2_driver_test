@@ -71,6 +71,7 @@ struct up3d_video_ctx
 	struct list_head vb_queue_active;
 	spinlock_t		 vb_queue_lock;
 	struct tasklet_struct vb2_tasklet;
+	struct work_struct irq_work;
 	struct up3d_vb2_buf *current_vb;
 
 	/* querycap信息 */
@@ -82,6 +83,7 @@ struct up3d_video_ctx
 	uint32_t	height_def;
 
 	int 		irq;
+	bool 		irq_is_requested;
 	void 		*ddr_addr;
 	uint8_t 	*img_addrs[MAX_IMAGE_BUFFER_COUNT];
 	int 		img_blk_count;
@@ -104,6 +106,7 @@ struct up3d_video_ctx
 	size_t input_image_buffer_size;
 	struct up3d_framesize output_images[3];	// left, right, rgb
 	struct gpio_desc *completed_gpio;
+	struct timer_list key_debounce_timer;
 
 };
 

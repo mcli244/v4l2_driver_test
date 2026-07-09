@@ -49,17 +49,21 @@ static dma_addr_t input_image_dma_addr = 0;
 
 int up3d_fpga_set_test_image_addr(struct up3d_video_ctx *ctx, u32 addr)
 {
-    if (!ctx)
-        return -EINVAL;
+    if (ctx == NULL){
+		dev_err(ctx->dev, "ctx is NULL\n");
+		return -EINVAL;
+	}
 	dev_info(ctx->dev, "test_image_addr: 0x%x\n", addr);
-    writel(addr, ctx->fpga_base_addr + UP3D_FPGA_IMAGE_ADDR_TEST_REG);
-    return 0;
+	writel(addr, ctx->fpga_base_addr + UP3D_FPGA_IMAGE_ADDR_TEST_REG);
+	return 0;
 }
 
 int up3d_fpga_set_output_image_addr(struct up3d_video_ctx *ctx, u32 addr)
 {
-    if (!ctx->fpga_base_addr)
-        return -EINVAL;
+    if (ctx == NULL){
+		dev_err(ctx->dev, "ctx is NULL\n");
+		return -EINVAL;
+	}
 
     u32 left_addr = addr;
     u32 right_addr = addr + ctx->output_images[1].width * ctx->output_images[1].height * ctx->output_images[1].bytes_per_pixel;
@@ -76,10 +80,46 @@ int up3d_fpga_set_output_image_addr(struct up3d_video_ctx *ctx, u32 addr)
 
 int up3d_fpga_ctrl(struct up3d_video_ctx *ctx, int enable)
 {
-    if (!ctx->fpga_base_addr)
-        return -EINVAL;
+    if (ctx == NULL){
+		dev_err(ctx->dev, "ctx is NULL\n");
+		return -EINVAL;
+	}
 
-    writel(enable ? 1 : 0, ctx->fpga_base_addr + UP3D_FPGA_ENABLE_REG);
+	int v = readl(ctx->fpga_base_addr + UP3D_FPGA_ENABLE_REG);
+	if(enable)
+		v |= (0x01 << 0);
+	else
+	 	v &= ~(0x01 << 0);
+    writel(v, ctx->fpga_base_addr + UP3D_FPGA_ENABLE_REG);
+    return 0;
+}
+
+int up3d_fpga_irq_control(struct up3d_video_ctx *ctx, int control_irq)
+{
+    if (ctx == NULL){
+		dev_err(ctx->dev, "ctx is NULL\n");
+		return -EINVAL;
+	}
+
+	int v = readl(ctx->fpga_base_addr + UP3D_FPGA_ENABLE_REG);
+	if(control_irq)
+		v |= (0x01 << 1);
+	else
+		v &= ~(0x01 << 1);
+    writel(v, ctx->fpga_base_addr + UP3D_FPGA_ENABLE_REG);
+    return 0;
+}
+
+int up3d_fpga_irq_clear(struct up3d_video_ctx *ctx)
+{
+    if (ctx == NULL){
+		dev_err(ctx->dev, "ctx is NULL\n");
+		return -EINVAL;
+	}
+
+	int v = readl(ctx->fpga_base_addr + UP3D_FPGA_ENABLE_REG);
+	v |= (0x01 << 1);
+    writel(v, ctx->fpga_base_addr + UP3D_FPGA_ENABLE_REG);
     return 0;
 }
 

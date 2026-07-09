@@ -53,7 +53,7 @@ int up3d_fpga_set_test_image_addr(struct up3d_video_ctx *ctx, u32 addr)
 		dev_err(ctx->dev, "ctx is NULL\n");
 		return -EINVAL;
 	}
-	dev_info(ctx->dev, "test_image_addr: 0x%x\n", addr);
+	dev_dbg(ctx->dev, "test_image_addr: 0x%x\n", addr);
 	writel(addr, ctx->fpga_base_addr + UP3D_FPGA_IMAGE_ADDR_TEST_REG);
 	return 0;
 }
@@ -70,7 +70,7 @@ int up3d_fpga_set_output_image_addr(struct up3d_video_ctx *ctx, u32 addr)
     u32 rgb_addr = right_addr + ctx->output_images[2].width * ctx->output_images[2].height * ctx->output_images[2].bytes_per_pixel;
 
     // TODO: 注意4字节对齐
-	dev_info(ctx->dev, "left_addr: 0x%x, right_addr: 0x%x, rgb_addr: 0x%x\n", left_addr, right_addr, rgb_addr);
+	dev_dbg(ctx->dev, "left_addr: 0x%x, right_addr: 0x%x, rgb_addr: 0x%x\n", left_addr, right_addr, rgb_addr);
     writel(left_addr, ctx->fpga_base_addr + UP3D_FPGA_IMAGE_ADDR_LIFT_REG);
     writel(right_addr, ctx->fpga_base_addr + UP3D_FPGA_IMAGE_ADDR_RIGHT_REG);
     writel(rgb_addr, ctx->fpga_base_addr + UP3D_FPGA_IMAGE_ADDR_RGB_REG);
@@ -291,7 +291,7 @@ int up3d_fpga_init(struct up3d_video_ctx *ctx)
 		return -ENOMEM;
 	}
 
-	dev_info(ctx->dev, "input_image_cpu_addr=%pK input_image_dma_addr=%pad\n", input_image_cpu_addr, &input_image_dma_addr);
+	dev_dbg(ctx->dev, "input_image_cpu_addr=%pK input_image_dma_addr=%pad\n", input_image_cpu_addr, &input_image_dma_addr);
 
 	ctx->fpga_base_addr = ioremap(UP3D_FPGA_ALGO_PARAM_REG_BASE, 512);
 	if (!ctx->fpga_base_addr) {
@@ -320,7 +320,7 @@ int up3d_fpga_init(struct up3d_video_ctx *ctx)
 		goto umap_free;
 	}
 
-	dev_info(ctx->dev, "up3d_fpga probe success\n");
+	dev_dbg(ctx->dev, "up3d_fpga probe success\n");
 
     return 0;
 

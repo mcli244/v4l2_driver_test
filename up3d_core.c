@@ -255,8 +255,6 @@ static int up3d_video_pdrv_probe(struct platform_device *pdev)
 		return up3dvideo_ctx.irq;
 	}
 	dev_info(&pdev->dev, "PL CAP INTC IRQ: %d\n", up3dvideo_ctx.irq);
-
-	tasklet_init(&up3dvideo_ctx.vb2_tasklet, up3d_vb2_tasklet_handler, (unsigned long)&up3dvideo_ctx);
 	INIT_WORK(&up3dvideo_ctx.irq_work, up3d_irq_work_handler);
 
 	if (_up3d_reserved_memory_by_dtb(&up3dvideo_ctx, pdev) < 0)

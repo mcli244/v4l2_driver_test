@@ -52,177 +52,9 @@
 #define VID_MODULE_NAME "up3d_vid"
 
 static struct up3d_video_ctx up3dvideo_ctx;
-static struct up3d_fmtdesc up3d_fmtdesc_lists[] =
-{
-	{
-		.description = "8bit GREY (832x608x3) (left/right/rgb)",
-		.pixel_format = V4L2_PIX_FMT_GREY,
-		.bytes_per_pixel = 1,
-		.framesize.width = 832,
-		.framesize.height = 608*3,
-	}
-};
 
 static void my_v4l2_release(struct v4l2_device *v4l2_dev)
 {
-}
-
-static int _up3d_reserved_memory_by_dtb(struct up3d_video_ctx *ctx, struct platform_device *pdev)
-{
-	/*
-		reserved-memory {
-			#address-cells = <2>;
-			#size-cells = <2>;
-			ranges;
-
-			my_region: buffer@8a100000 {
-				reg = <0x0 0x8a100000 0x0 0x00400000>;
-				no-map;
-				// 图像宽度 图像高度 每个像素占用字节数
-				img-info = <832 608 1>;
-				// 起始地址 间隔大小 总数量
-				img-buffers = <0 0x100000 1>;
-			};
-		};
-
-		pl_cap_intc: cap-intc@40000500{
-			compatible = "up3d610,cap-intc";
-			status = "okay";
-			interrupt-names = "pl-cap-intc";
-			interrupt-parent = <&plic>;
-			interrupts = <129>;
-
-			memory-region = <&my_region>;
-
-			completed-gpios = <&gpio2 24 GPIO_ACTIVE_HIGH>;
-			reg = <0x0 0x40000500 0x0 0x100>;
-		};
-	*/
-	struct resource res;
-	phys_addr_t phys_addr;
-	size_t size;
-	const __be32 *prop;
-	u32 img_width, img_height, img_bpp, img_bytes;
-	u32 offset, blk_size, blk_count;
-	int i;
-
-	struct device *dev = &pdev->dev;
-	struct device_node *np = of_parse_phandle(dev->of_node, "memory-region", 0);
-	if (!np)
-	{
-		dev_err(dev, "Failed to parse memory-region\n");
-		return -ENOMEM;
-	}
-
-	if (of_address_to_resource(np, 0, &res))
-	{
-		dev_err(dev, "Failed to get reserved memory resource\n");
-		of_node_put(np);
-		return -EINVAL;
-	}
-
-	phys_addr = res.start;
-	size = resource_size(&res);
-
-	dev_info(dev, "Reserved memory at phys_addr: 0x%llx, size: 0x%zx\n",
-			 (unsigned long long)phys_addr, size);
-
-	ctx->ddr_addr = memremap(phys_addr, size, MEMREMAP_WB);
-	if (!ctx->ddr_addr)
-	{
-		dev_err(dev, "Failed to memremap DDR address\n");
-		of_node_put(np);
-		return -ENOMEM;
-	}
-	dev_info(dev, "Mapped reserved memory to virtual address: 0x%px - 0x%px \n",
-			 ctx->ddr_addr, ctx->ddr_addr + size - 1);
-
-	prop = of_get_property(np, "img-info", NULL);
-	if (prop)
-	{
-		img_width = be32_to_cpu(prop[0]);
-		img_height = be32_to_cpu(prop[1]);
-		img_bpp = be32_to_cpu(prop[2]);
-		img_bytes = img_width * img_height * img_bpp;
-		pr_info("Image info: width=%u, height=%u, bpp=%u, bytes=%u\n",
-				img_width, img_height, img_bpp, img_bytes);
-	}
-	else
-	{
-		dev_err(dev, "Failed to get image info\n");
-		memunmap(ctx->ddr_addr);
-		of_node_put(np);
-		return -EINVAL;
-	}
-
-	prop = of_get_property(np, "img-buffers", NULL);
-	if (prop)
-	{
-		offset = be32_to_cpu(prop[0]);
-		blk_size = be32_to_cpu(prop[1]);
-		blk_count = be32_to_cpu(prop[2]);
-		if (ctx->ddr_addr + offset + blk_size * blk_count > ctx->ddr_addr + size ||
-			blk_count == 0 || blk_count > MAX_IMAGE_BUFFER_COUNT)
-		{
-			dev_err(dev, "Image buffer exceeds reserved memory size! offset=%u, blk_size=%u, blk_count=%u\n",
-					offset, blk_size, blk_count);
-			memunmap(ctx->ddr_addr);
-			of_node_put(np);
-			return -EINVAL;
-		}
-
-		pr_info("Image buffers: offset=%u, blk_size=%u, blk_count=%u\n",
-				offset, blk_size, blk_count);
-
-		for (i = 0; i < blk_count; i++)
-		{
-			ctx->img_addrs[i] = ctx->ddr_addr + offset + (i * blk_size);
-			pr_info("Image buffer %02d address: %px\n", i, ctx->img_addrs[i]);
-		}
-		ctx->img_blk_count = blk_count;
-	}
-	else
-	{
-		dev_err(dev, "Failed to get image buffers\n");
-		memunmap(ctx->ddr_addr);
-		of_node_put(np);
-		return -EINVAL;
-	}
-	of_node_put(np);
-	return 0;
-}
-
-static int _vb_queue_init(struct vb2_queue *q, struct up3d_video_ctx *ctx)
-{
-	q->type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
-	q->buf_struct_size = sizeof(struct up3d_vb2_buf);
-	q->ops = &up3d_vb2_ops;
-	// q->io_modes = VB2_MMAP;
-	// q->mem_ops = &vb2_vmalloc_memops;
-	q->mem_ops = &vb2_dma_contig_memops;
-	q->io_modes = VB2_MMAP | VB2_DMABUF;
-	q->timestamp_flags = V4L2_BUF_FLAG_TIMESTAMP_MONOTONIC;
-	// q->min_queued_buffers = 1;
-	q->lock = &ctx->mutex;
-	q->drv_priv = ctx;
-	q->allow_cache_hints = 1;
-	q->dev = ctx->dev;	// ！！！及其重要
-
-	spin_lock_init(&ctx->vb_queue_lock);
-	INIT_LIST_HEAD(&ctx->vb_queue_active);
-	return vb2_queue_init(q);
-}
-
-static int _init_format(struct v4l2_format *f, struct up3d_video_ctx *ctx)
-{
-	f->type = V4L2_BUF_TYPE_VIDEO_CAPTURE;	// 必须设置，否则后续的ioctl会失败
-	f->fmt.pix.width = ctx->width_def;
-	f->fmt.pix.height = ctx->height_def;
-	f->fmt.pix.pixelformat = ctx->fmt_lists[0].pixel_format;
-	f->fmt.pix.bytesperline = f->fmt.pix.width * ctx->fmt_lists[0].bytes_per_pixel;
-	f->fmt.pix.sizeimage = f->fmt.pix.bytesperline * f->fmt.pix.height;
-
-	return 0;
 }
 
 const struct v4l2_file_operations up3d_v4l2_fops = {
@@ -240,54 +72,23 @@ static int up3d_video_pdrv_probe(struct platform_device *pdev)
 	int ret;
 	struct video_device *vfd;
 	
-	ret = dma_set_mask_and_coherent(&pdev->dev, DMA_BIT_MASK(32));
-	if (ret){
-		dev_err(&pdev->dev, "Failed to set DMA mask: %d\n", ret);
-		return ret;
-	}
-
 	memset(&up3dvideo_ctx, 0, sizeof(up3dvideo_ctx));
-	up3dvideo_ctx.irq = platform_get_irq(pdev, 0);
-	up3dvideo_ctx.irq_is_requested = false;
-	if (up3dvideo_ctx.irq < 0)
-	{
-		dev_err(&pdev->dev, "Failed to get IRQ\n");
-		return up3dvideo_ctx.irq;
-	}
-	dev_info(&pdev->dev, "PL CAP INTC IRQ: %d\n", up3dvideo_ctx.irq);
-	INIT_WORK(&up3dvideo_ctx.irq_work, up3d_irq_work_handler);
-
-	if (_up3d_reserved_memory_by_dtb(&up3dvideo_ctx, pdev) < 0)
-	{
-		dev_err(&pdev->dev, "Failed to memremap DDR address\n");
-		// goto irq_ext;
-	}
-
 	up3dvideo_ctx.dev = &pdev->dev;
+	up3dvideo_ctx.pdev = pdev;
+
 	/* register v4l2_device */
 	snprintf(up3dvideo_ctx.v4l2_dev.name, sizeof(up3dvideo_ctx.v4l2_dev.name), "%s-%03d", VID_MODULE_NAME, 0);
 	ret = v4l2_device_register(&pdev->dev, &up3dvideo_ctx.v4l2_dev);
 	if (ret < 0)
 	{
 		dev_err(&pdev->dev, "v4l2_device_register failed ret:%d ", ret);
-		goto reserved_memory_free_ext;
+		return ret;
 	}
 	up3dvideo_ctx.v4l2_dev.release = my_v4l2_release;
 
-	strcpy(up3dvideo_ctx.cap.driver, "up3d_driver");
-	strcpy(up3dvideo_ctx.cap.card, "up3d_device");
-	up3dvideo_ctx.cap.version = 0x0001;
-	up3dvideo_ctx.cap.capabilities = V4L2_CAP_VIDEO_CAPTURE | V4L2_CAP_STREAMING | V4L2_CAP_DEVICE_CAPS;
-	up3dvideo_ctx.cap.device_caps = V4L2_CAP_VIDEO_CAPTURE | V4L2_CAP_STREAMING;
-	up3dvideo_ctx.width_max = WIDTH_MAX;
-	up3dvideo_ctx.height_max = HEIGHT_MAX;
-	up3dvideo_ctx.width_def = WIDTH_DEF;
-	up3dvideo_ctx.height_def = HEIGHT_DEF;
-	up3dvideo_ctx.fmt_lists = &up3d_fmtdesc_lists[0];
-	up3dvideo_ctx.fmt_lists_cnt = ARRAY_SIZE(up3d_fmtdesc_lists);
-	_init_format(&up3dvideo_ctx.cur_v4l2_format, &up3dvideo_ctx);
+	up3d_init_current_format(&up3dvideo_ctx);
 
-	if(_vb_queue_init(&up3dvideo_ctx.vb_queue, &up3dvideo_ctx) < 0){
+	if(up3d_vb2_queue_init(&up3dvideo_ctx.vb_queue, &up3dvideo_ctx) < 0){
 		dev_err(&pdev->dev, "Failed to initialize VB queue\n");
 		goto unreg_dev;
 	}
@@ -310,22 +111,6 @@ static int up3d_video_pdrv_probe(struct platform_device *pdev)
 		dev_err(&pdev->dev, "video_register_device erron:%d ", erron);
 		goto unreg_dev;
 	}
-
-	up3dvideo_ctx.input_image.width = 832;
-	up3dvideo_ctx.input_image.height = 608;
-	up3dvideo_ctx.input_image.bytes_per_pixel = 1;
-
-	up3dvideo_ctx.output_images[0].width = 832;
-	up3dvideo_ctx.output_images[0].height = 608;
-	up3dvideo_ctx.output_images[0].bytes_per_pixel = 1;
-
-	up3dvideo_ctx.output_images[1].width = 832;
-	up3dvideo_ctx.output_images[1].height = 608;
-	up3dvideo_ctx.output_images[1].bytes_per_pixel = 1;
-
-	up3dvideo_ctx.output_images[2].width = 832;
-	up3dvideo_ctx.output_images[2].height = 608;
-	up3dvideo_ctx.output_images[2].bytes_per_pixel = 1;
 
 	ret = up3d_fpga_init(&up3dvideo_ctx);
 	if (ret < 0) {
@@ -360,12 +145,6 @@ unreg_video:
 unreg_dev:
 	v4l2_device_put(&up3dvideo_ctx.v4l2_dev);
 
-reserved_memory_free_ext:
-	memunmap(up3dvideo_ctx.ddr_addr);
-
-// irq_ext:
-// 	devm_free_irq(&pdev->dev, platform_get_irq(pdev, 0), NULL);
-
 	return -ENOMEM;
 }
 static void up3d_video_pdrv_remove(struct platform_device *dev)
@@ -380,8 +159,6 @@ static void up3d_video_pdrv_remove(struct platform_device *dev)
 	debugfs_remove_recursive(ctx->debugfs_root);
     ctx->debugfs_root = NULL;
 	sysfs_remove_group(&dev->dev.kobj, &up3d_attr_group);
-	memunmap(ctx->ddr_addr);
-	// devm_free_irq(&dev->dev, platform_get_irq(dev, 0), NULL);
 	video_unregister_device(&ctx->vid_cap_dev);
 	v4l2_device_put(&ctx->v4l2_dev);
 }

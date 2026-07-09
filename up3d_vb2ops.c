@@ -5,8 +5,6 @@
 #include "up3d_fpga.h"
 #include <linux/delay.h>
 
-#define MY_SOFTIRQ_VEC 26
-
 static void up3d_frame_process(struct up3d_video_ctx *ctx)
 {
     struct up3d_vb2_buf *vb;
@@ -90,7 +88,7 @@ void up3d_irq_work_handler(struct work_struct *work)
 	up3d_frame_process(ctx);
 }
 
-static irqreturn_t pl_cap_intc_irq_handler(int irq, void *dev_id)
+irqreturn_t pl_cap_intc_irq_handler(int irq, void *dev_id)
 {
 	struct up3d_video_ctx *ctx = (struct up3d_video_ctx *)dev_id;
 	dev_dbg(ctx->dev, "pl_cap_intc_irq_handler: irq handler %d\n", atomic_read(&ctx->device_info.irq_count));
@@ -175,26 +173,8 @@ static int up3d_start_streaming(struct vb2_queue *q, unsigned int count)
 
 	dev_dbg(ctx->dev, "up3d_start_streaming: ctx %p\n", ctx);
 
-	if (atomic_read(&ctx->device_info.status) == UP3D_STA_PAUSE)
+	if (atomic_read(&ctx->device_info.status) == UP3D_STA_STOP)
 	{
-		dev_dbg(ctx->dev, "up3d_start_streaming: enable irq\n");
-		enable_irq(ctx->irq); // TODO: 后续应该是通过AXI-IIC通知FPGA开始产生中断
-		atomic_set(&ctx->device_info.irq_is_disable, 0);
-		atomic_set(&ctx->device_info.status, UP3D_STA_RUN);
-	}
-	else if (atomic_read(&ctx->device_info.status) == UP3D_STA_STOP)
-	{
-		/* 申请中断 */
-		dev_dbg(ctx->dev, "up3d_start_streaming: request IRQ\n");
-		if(!ctx->irq_is_requested){
-			if (devm_request_irq(ctx->dev, ctx->irq, pl_cap_intc_irq_handler, IRQF_TRIGGER_RISING, "pl_cap_intc", ctx))
-			{
-				dev_err(ctx->dev, "Failed to request IRQ\n");
-				return -EINVAL;
-			}
-			ctx->irq_is_requested = true;
-		}
-
 		atomic_set(&ctx->device_info.status, UP3D_STA_RUN);
 
 		dev_dbg(ctx->dev, "up3d_start_streaming: set status to RUN\n");
@@ -238,9 +218,8 @@ static int up3d_start_streaming(struct vb2_queue *q, unsigned int count)
 			up3d_fpga_ctrl(ctx, 1);
 			dev_dbg(ctx->dev, "up3d_start_streaming: set output image address to 0x%x\n", dma_addr);
 		}
+		atomic_set(&ctx->device_info.status, UP3D_STA_RUN);
 	}
-
-	atomic_set(&ctx->device_info.status, UP3D_STA_RUN);
 
 	return 0;
 }
@@ -258,8 +237,7 @@ static void up3d_stop_streaming(struct vb2_queue *q)
 		disable_irq(ctx->irq);	  // TODO: 后续应该是通过AXI-IIC通知FPGA停止产生中断
 		// atomic_set(&ctx->device_info.status, UP3D_STA_PAUSE); // note: 这里没有完全释放IRQ，只是暂停了中断，释放中断放到remove中
 		atomic_set(&ctx->device_info.status, UP3D_STA_STOP); 
-		
-		tasklet_kill(&ctx->vb2_tasklet);
+
 		unsigned long flags;
 
 		spin_lock_irqsave(&ctx->vb_queue_lock, flags);
@@ -297,6 +275,30 @@ static int up3d_buf_init(struct vb2_buffer *vb)
 
 static void up3d_buf_cleanup(struct vb2_buffer *vb)
 {
+}
+
+int up3d_vb2_queue_init(struct vb2_queue *q, struct up3d_video_ctx *ctx)
+{
+	int ret = dma_set_mask_and_coherent(ctx->dev, DMA_BIT_MASK(32));
+	if (ret){	
+		dev_err(ctx->dev, "Failed to set DMA mask: %d\n", ret);
+		return ret;
+	}
+
+	q->type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+	q->buf_struct_size = sizeof(struct up3d_vb2_buf);
+	q->ops = &up3d_vb2_ops;
+	q->mem_ops = &vb2_dma_contig_memops;
+	q->io_modes = VB2_MMAP | VB2_DMABUF;
+	q->timestamp_flags = V4L2_BUF_FLAG_TIMESTAMP_MONOTONIC;
+	q->lock = &ctx->mutex;
+	q->drv_priv = ctx;
+	q->allow_cache_hints = 1;
+	q->dev = ctx->dev;	// ！！！及其重要
+
+	spin_lock_init(&ctx->vb_queue_lock);
+	INIT_LIST_HEAD(&ctx->vb_queue_active);
+	return vb2_queue_init(q);
 }
 
 const struct vb2_ops up3d_vb2_ops = {

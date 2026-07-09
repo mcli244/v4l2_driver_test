@@ -2,6 +2,7 @@
 #include <linux/dma-mapping.h>
 #include <linux/miscdevice.h>
 #include <linux/mm.h>
+#include "up3d_vb2ops.h"
 
 
 #define UP3D_FPGA_ALGO_PARAM_REG_BASE         (0x40000600)
@@ -269,11 +270,33 @@ static const struct file_operations up3d_fpga_fops = {
 	.unlocked_ioctl = up3d_fpga_ioctl,
 };
 
+
+static void up3d_init_input_output_images_address(struct up3d_video_ctx *ctx)
+{
+	ctx->input_image.width = 832;
+	ctx->input_image.height = 608;
+	ctx->input_image.bytes_per_pixel = 1;
+
+	ctx->output_images[0].width = 832;
+	ctx->output_images[0].height = 608;
+	ctx->output_images[0].bytes_per_pixel = 1;
+
+	ctx->output_images[1].width = 832;
+	ctx->output_images[1].height = 608;
+	ctx->output_images[1].bytes_per_pixel = 1;
+
+	ctx->output_images[2].width = 832;
+	ctx->output_images[2].height = 608;
+	ctx->output_images[2].bytes_per_pixel = 1;
+}
+
 int up3d_fpga_init(struct up3d_video_ctx *ctx)
 {
 	int ret = 0;
 	if(!ctx || !ctx->dev)
 		return -EINVAL;
+
+	up3d_init_input_output_images_address(ctx);
 
 	if(ctx->input_image.width > WIDTH_MAX || ctx->input_image.height > HEIGHT_MAX)
 	{
@@ -308,6 +331,22 @@ int up3d_fpga_init(struct up3d_video_ctx *ctx)
 	}
 	gpiod_set_value_cansleep(ctx->completed_gpio, 0);
 
+	ctx->irq = platform_get_irq(ctx->pdev, 0);
+	if (ctx->irq < 0){
+		dev_err(ctx->dev, "Failed to get IRQ\n");
+		ret = -EINVAL;
+		goto umap_free;
+	}
+	INIT_WORK(&ctx->irq_work, up3d_irq_work_handler);
+
+	if (devm_request_irq(ctx->dev, ctx->irq, pl_cap_intc_irq_handler, 
+		IRQF_TRIGGER_RISING, "pl_cap_intc", ctx))
+	{
+		dev_err(ctx->dev, "Failed to request IRQ\n");
+		ret = -EINVAL;
+		goto umap_free;
+	}
+
 	up3d_fpga_set_test_image_addr(ctx, (u32)input_image_dma_addr);
 
 	ctx->fpga_miscdev.name = "up3d-fpga";
@@ -340,9 +379,12 @@ dma_free:
 
 int up3d_fpga_exit(struct up3d_video_ctx *ctx)
 {
-    // 判断是否已经被申请过，避免重复释放
-    if (!ctx->fpga_base_addr)
-        return -EINVAL;
+	if(!ctx || !ctx->dev)
+		return -EINVAL;
+
+	disable_irq(ctx->irq);
+
+	cancel_work_sync(&ctx->irq_work);
 
     if (ctx->fpga_miscdev.this_device) {
         misc_deregister(&ctx->fpga_miscdev);

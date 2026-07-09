@@ -3,9 +3,44 @@
 
 #define INPUT_DEVICE_NUMS 1
 
+static struct up3d_fmtdesc up3d_fmtdesc_lists[] =
+{
+	{
+		.description = "8bit GREY (832x608x3) (left/right/rgb)",
+		.pixel_format = V4L2_PIX_FMT_GREY,
+		.bytes_per_pixel = 1,
+		.framesize.width = 832,
+		.framesize.height = 608*3,
+	}
+};
+
 static const struct v4l2_frmsize_discrete grey_sizes[] = {
 	{832, 608*3},
 };
+
+int up3d_init_current_format(struct up3d_video_ctx *ctx)
+{
+	if(!ctx || !ctx->dev)
+		return -EINVAL;
+
+	strcpy(ctx->cap.driver, "up3d_driver");
+	strcpy(ctx->cap.card, "up3d_device");
+	ctx->cap.version = 0x0001;
+	ctx->cap.capabilities = V4L2_CAP_VIDEO_CAPTURE | V4L2_CAP_STREAMING | V4L2_CAP_DEVICE_CAPS;
+	ctx->cap.device_caps = V4L2_CAP_VIDEO_CAPTURE | V4L2_CAP_STREAMING;
+	ctx->fmt_lists = &up3d_fmtdesc_lists[0];
+	ctx->fmt_lists_cnt = ARRAY_SIZE(up3d_fmtdesc_lists);
+
+	ctx->cur_v4l2_format.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;	// 必须设置，否则后续的ioctl会失败
+	ctx->cur_v4l2_format.fmt.pix.width = WIDTH_DEF;
+	ctx->cur_v4l2_format.fmt.pix.height = HEIGHT_DEF;
+	ctx->cur_v4l2_format.fmt.pix.field = V4L2_FIELD_INTERLACED;
+	ctx->cur_v4l2_format.fmt.pix.pixelformat = ctx->fmt_lists[0].pixel_format;
+	ctx->cur_v4l2_format.fmt.pix.bytesperline = ctx->cur_v4l2_format.fmt.pix.width * ctx->fmt_lists[0].bytes_per_pixel;
+	ctx->cur_v4l2_format.fmt.pix.sizeimage = ctx->cur_v4l2_format.fmt.pix.bytesperline * ctx->cur_v4l2_format.fmt.pix.height;
+
+	return 0;
+}
 
 /* 列举支持哪种格式 */
 static int up3d_enum_fmt_vid_cap(struct file *file, void *fh, struct v4l2_fmtdesc *f)
@@ -59,7 +94,7 @@ static int up3d_try_fmt_vid_cap(struct file *file, void *fh, struct v4l2_format 
 		return -EINVAL;
 	}
 
-	v4l_bound_align_image(&f->fmt.pix.width, 48, ctx->width_max, 2, &f->fmt.pix.height, 32, ctx->height_max, 0, 0);
+	v4l_bound_align_image(&f->fmt.pix.width, 48, WIDTH_MAX, 2, &f->fmt.pix.height, 32, HEIGHT_MAX, 0, 0);
 	f->fmt.pix.bytesperline = f->fmt.pix.width * ctx->fmt_lists[index].bytes_per_pixel;
 	f->fmt.pix.sizeimage = f->fmt.pix.height * f->fmt.pix.bytesperline;
 

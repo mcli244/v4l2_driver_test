@@ -16,8 +16,6 @@
 #define WIDTH_DEF	(832)
 #define HEIGHT_DEF	(608*3)
 
-#define MAX_IMAGE_BUFFER_COUNT	16
-
 #define UP3D_STA_STOP 0
 #define UP3D_STA_RUN 1
 #define UP3D_STA_PAUSE 2
@@ -59,6 +57,7 @@ struct up3d_fmtdesc
 struct up3d_video_ctx
 {
 	struct device			*dev;
+	struct platform_device 	*pdev;
 	struct v4l2_format 		cur_v4l2_format;	
 	struct v4l2_device		v4l2_dev;		
 	struct video_device		vid_cap_dev;	
@@ -70,32 +69,19 @@ struct up3d_video_ctx
 	struct vb2_queue vb_queue;
 	struct list_head vb_queue_active;
 	spinlock_t		 vb_queue_lock;
-	struct tasklet_struct vb2_tasklet;
 	struct work_struct irq_work;
 	struct up3d_vb2_buf *current_vb;
 
 	/* querycap信息 */
 	struct v4l2_capability cap;
 
-	uint32_t	width_max;
-	uint32_t	height_max;
-	uint32_t	width_def;
-	uint32_t	height_def;
-
 	int 		irq;
-	bool 		irq_is_requested;
-	void 		*ddr_addr;
-	uint8_t 	*img_addrs[MAX_IMAGE_BUFFER_COUNT];
-	int 		img_blk_count;
-	int 		img_index;
 
 	/* controls */
 	int 						input_brightness;
-
 	struct up3d_device_info 	device_info;
 	struct dentry 				*debugfs_root;
 
-	struct timer_list 		stream_timer;
 
 	/* FPGA相关 */
 	void *fpga_base_addr;

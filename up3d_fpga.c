@@ -339,6 +339,8 @@ int up3d_fpga_init(struct up3d_video_ctx *ctx)
 	}
 	INIT_WORK(&ctx->irq_work, up3d_irq_work_handler);
 
+	up3d_fpga_irq_clear(ctx);
+	ctx->device_info.fpga_discarded_frames_cnt = 0;
 	if (devm_request_irq(ctx->dev, ctx->irq, pl_cap_intc_irq_handler, 
 		IRQF_TRIGGER_RISING, "pl_cap_intc", ctx))
 	{

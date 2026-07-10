@@ -16,13 +16,40 @@ static void up3d_frame_process(struct up3d_video_ctx *ctx)
     u32 interval_ms = 0;
 
     if (!ctx){
-		dev_err(ctx->dev, "ctx is NULL\n");
 		return;
 	}
 
-    spin_lock_irqsave(&ctx->vb_queue_lock, flags);
+    {
+        int empty_count = 0;
+        int max_count = 50; // 10ms * 50 = 500ms = 0.5s
+        bool got_buffer = false;
 
-    /* 1. 完成当前 buffer */
+        while (1) {
+            spin_lock_irqsave(&ctx->vb_queue_lock, flags);
+            if (!list_empty(&ctx->vb_queue_active)) {
+                got_buffer = true;
+				spin_unlock_irqrestore(&ctx->vb_queue_lock, flags);
+                break;
+            }
+            spin_unlock_irqrestore(&ctx->vb_queue_lock, flags);
+            msleep(10);
+            empty_count++;
+            if (empty_count >= max_count) {
+				if(ctx->current_vb != NULL){
+					up3d_fpga_ctrl(ctx, 0);
+					up3d_fpga_set_output_image_addr(ctx, vb2_dma_contig_plane_dma_addr(&ctx->current_vb->vb.vb2_buf, 0));
+					up3d_fpga_ctrl(ctx, 1);
+					ctx->device_info.fpga_discarded_frames_cnt++;
+					return;
+				}else {
+					dev_err(ctx->dev, "vb_queue_active still empty after %d ms, exit frame process\n", max_count * 10);
+					return;
+				}   
+            }
+        }
+    }
+
+    spin_lock_irqsave(&ctx->vb_queue_lock, flags);
     vb = ctx->current_vb;
     ctx->current_vb = NULL;
 
@@ -36,35 +63,7 @@ static void up3d_frame_process(struct up3d_video_ctx *ctx)
 		dev_err(ctx->dev, "vb is NULL\n");
     }
 
-    /* 2. 取下一个 buffer */
-    {
-        int empty_count = 0;
-        int max_count = 5; // 10ms * 300 = 3000ms = 3s
-        bool got_buffer = false;
-
-        while (1) {
-            spin_lock_irqsave(&ctx->vb_queue_lock, flags);
-            if (!list_empty(&ctx->vb_queue_active)) {
-                got_buffer = true;
-                break;
-            }
-            spin_unlock_irqrestore(&ctx->vb_queue_lock, flags);
-            msleep(10);
-            empty_count++;
-            if (empty_count >= max_count) {
-                dev_err(ctx->dev, "vb_queue_active still empty after 3 seconds, exit frame process\n");
-                return;
-            }
-        }
-
-        // 如果break时拿到锁需记得unlock
-        if (got_buffer)
-            ; // spin is still held, continue
-        else
-            spin_lock_irqsave(&ctx->vb_queue_lock, flags);
-        //（紧接buffer提取逻辑）
-    }
-
+	spin_lock_irqsave(&ctx->vb_queue_lock, flags);
     next = list_first_entry(&ctx->vb_queue_active,
                             struct up3d_vb2_buf,
                             list);

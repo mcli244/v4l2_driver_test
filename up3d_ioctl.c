@@ -85,12 +85,12 @@ static int up3d_try_fmt_vid_cap(struct file *file, void *fh, struct v4l2_format 
 	field = f->fmt.pix.field;
 	if (field == V4L2_FIELD_ANY)
 	{
-		dev_err(ctx->dev, "field:0x%x", field);
+		// dev_err(ctx->dev, "field:0x%x", field);
 		field = V4L2_FIELD_INTERLACED;
 	}
 	else if (V4L2_FIELD_INTERLACED != field)
 	{
-		dev_err(ctx->dev, "field:0x%x", field);
+		// dev_err(ctx->dev, "field:0x%x", field);
 		return -EINVAL;
 	}
 

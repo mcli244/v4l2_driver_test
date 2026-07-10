@@ -34,6 +34,7 @@ struct up3d_device_info {
 	uint32_t	irq_interval_time_ms;
 	uint32_t	buf_queue_interval_time_ms;
 	uint32_t	fpga_enable_interval_time_ms;
+	uint32_t 	fpga_discarded_frames_cnt;
 };
 
 

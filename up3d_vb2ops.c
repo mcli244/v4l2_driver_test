@@ -4,12 +4,16 @@
 #include <linux/delay.h>
 #include "up3d_fpga.h"
 #include <linux/delay.h>
+#include <linux/ktime.h>
 
 static void up3d_frame_process(struct up3d_video_ctx *ctx)
 {
     struct up3d_vb2_buf *vb;
     struct up3d_vb2_buf *next;
     unsigned long flags;
+	static u64 prev_irq_time_ns = 0;
+	u64 curr_irq_time_ns;
+    u32 interval_ms = 0;
 
     if (!ctx){
 		dev_err(ctx->dev, "ctx is NULL\n");
@@ -35,7 +39,7 @@ static void up3d_frame_process(struct up3d_video_ctx *ctx)
     /* 2. 取下一个 buffer */
     {
         int empty_count = 0;
-        int max_count = 300; // 10ms * 300 = 3000ms = 3s
+        int max_count = 5; // 10ms * 300 = 3000ms = 3s
         bool got_buffer = false;
 
         while (1) {
@@ -69,6 +73,14 @@ static void up3d_frame_process(struct up3d_video_ctx *ctx)
     ctx->current_vb = next;
 
     spin_unlock_irqrestore(&ctx->vb_queue_lock, flags);
+	
+	
+	curr_irq_time_ns = ktime_get_ns();
+    if (prev_irq_time_ns != 0) {
+        interval_ms = (u32)((curr_irq_time_ns - prev_irq_time_ns) / 1000000);
+        ctx->device_info.fpga_enable_interval_time_ms = interval_ms;
+    }
+    prev_irq_time_ns = curr_irq_time_ns;
 
     /* 3. 启动 FPGA */
 	up3d_fpga_ctrl(ctx, 0);
@@ -90,14 +102,25 @@ void up3d_irq_work_handler(struct work_struct *work)
 
 irqreturn_t pl_cap_intc_irq_handler(int irq, void *dev_id)
 {
-	struct up3d_video_ctx *ctx = (struct up3d_video_ctx *)dev_id;
-	dev_dbg(ctx->dev, "pl_cap_intc_irq_handler: irq handler %d\n", atomic_read(&ctx->device_info.irq_count));
+    static u64 prev_irq_time_ns = 0;
+    struct up3d_video_ctx *ctx = (struct up3d_video_ctx *)dev_id;
+    u64 curr_irq_time_ns;
+    u32 interval_ms = 0;
 
-	up3d_fpga_irq_clear(ctx);
-	schedule_work(&ctx->irq_work);
-	atomic_inc(&ctx->device_info.irq_count);
+    dev_dbg(ctx->dev, "pl_cap_intc_irq_handler: irq handler %d\n", atomic_read(&ctx->device_info.irq_count));
 
-	return IRQ_HANDLED;
+    curr_irq_time_ns = ktime_get_ns();
+    if (prev_irq_time_ns != 0) {
+        interval_ms = (u32)((curr_irq_time_ns - prev_irq_time_ns) / 1000000);
+        ctx->device_info.irq_interval_time_ms = interval_ms;
+    }
+    prev_irq_time_ns = curr_irq_time_ns;
+
+    up3d_fpga_irq_clear(ctx);
+    schedule_work(&ctx->irq_work);
+    atomic_inc(&ctx->device_info.irq_count);
+
+    return IRQ_HANDLED;
 }
 
 static int up3d_queue_setup(struct vb2_queue *q,
@@ -153,12 +176,23 @@ static void up3d_buf_finish(struct vb2_buffer *vb)
 
 static void up3d_buf_queue(struct vb2_buffer *vb)
 {
+	static ktime_t last_time;
+	ktime_t now = ktime_get();
+	s64 interval_ms = 0;
+
 	struct vb2_v4l2_buffer *vbuf = to_vb2_v4l2_buffer(vb);
 	struct up3d_vb2_buf *buf = container_of(vbuf, struct up3d_vb2_buf, vb);
 	struct up3d_video_ctx *ctx = vb2_get_drv_priv(vb->vb2_queue);
 
 	dma_addr_t dma_addr = vb2_dma_contig_plane_dma_addr(vb, 0);
-	dev_dbg(ctx->dev, "up3d_buf_queue: Buffer %pad\n", &dma_addr);
+
+	// Measure interval between two entries
+	if (last_time != 0)
+		interval_ms = ktime_to_ms(ktime_sub(now, last_time));
+	last_time = now;
+	ctx->device_info.buf_queue_interval_time_ms = (uint32_t)interval_ms;
+
+	dev_dbg(ctx->dev, "up3d_buf_queue: Buffer %pad, interval since last queue: %lld ms\n", &dma_addr, interval_ms);
 
 	spin_lock(&ctx->vb_queue_lock);
 	list_add_tail(&buf->list, &ctx->vb_queue_active);

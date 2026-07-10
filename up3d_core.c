@@ -164,7 +164,7 @@ static void up3d_video_pdrv_remove(struct platform_device *dev)
 }
 
 static const struct of_device_id pl_cap_intc_of_match[] = {
-	{.compatible = "up3d610,cap-intc"},
+	{.compatible = "up3d,up800w-video"},
 	{/* sentinel */}};
 MODULE_DEVICE_TABLE(of, pl_cap_intc_of_match);
 
@@ -172,7 +172,7 @@ static struct platform_driver pl_cap_intc_driver = {
 	.probe = up3d_video_pdrv_probe,
 	.remove = up3d_video_pdrv_remove,
 	.driver = {
-		.name = "up3d_video_610",
+		.name = "up3d_up800w",
 		.of_match_table = pl_cap_intc_of_match,
 	},
 };
@@ -180,5 +180,5 @@ static struct platform_driver pl_cap_intc_driver = {
 module_platform_driver(pl_cap_intc_driver);
 
 MODULE_AUTHOR("CoreyLee <lixiangjun@up3dtech.com>");
-MODULE_DESCRIPTION("Up3d610w Video Driver");
+MODULE_DESCRIPTION("Up3d800w Video Driver");
 MODULE_LICENSE("GPL");

@@ -57,7 +57,9 @@ DEVICE_ATTR_GENERIC(vb_free, "vb_free");
 DEVICE_ATTR_GENERIC(vb_free_min, "vb_free_min");
 DEVICE_ATTR_GENERIC(vb_queue_overflow, "vb_queue_overflow");
 DEVICE_ATTR_GENERIC(cur_v4l2_format, "cur_v4l2_format");
-
+DEVICE_ATTR_GENERIC(irq_interval_time_ms, "irq_interval_time_ms");
+DEVICE_ATTR_GENERIC(buf_queue_interval_time_ms, "buf_queue_interval_time_ms");
+DEVICE_ATTR_GENERIC(fpga_enable_interval_time_ms, "fpga_enable_interval_time_ms");
 
 static struct attribute *up3d_attrs[] = {
     &dev_attr_status.attr,
@@ -68,6 +70,9 @@ static struct attribute *up3d_attrs[] = {
     &dev_attr_vb_free_min.attr,
     &dev_attr_vb_queue_overflow.attr,
     &dev_attr_cur_v4l2_format.attr,
+    &dev_attr_irq_interval_time_ms.attr,
+    &dev_attr_buf_queue_interval_time_ms.attr,
+    &dev_attr_fpga_enable_interval_time_ms.attr,
     NULL,
 };
 
@@ -91,8 +96,8 @@ static ssize_t up3d_video_debugfs_read(struct file *file, char __user *buf,
 	if (!ctx)
 		return -EINVAL;
 
-    len = snprintf(tmp, sizeof(tmp), "status:%d  irq_count:%d vb_total:%d vb_free:%d vb_free_min:%d vb_queue_overflow:%d \n"
-		"pixelformat:0x%x %d x %d\n", 
+    len = snprintf(tmp, sizeof(tmp), "status: %d\nirq_count: %d\nvb_total: %d\nvb_free: %d\nvb_free_min: %d\nvb_queue_overflow: %d\n"
+		"pixelformat:0x%x %d x %d\nirq_interval_time_ms:%d ms\nbuf_queue_interval_time_ms:%d ms\nfpga_enable_interval_time_ms:%d ms\n", 
 		atomic_read(&ctx->device_info.status), 
 		atomic_read(&ctx->device_info.irq_count),
 		ctx->device_info.vb_total,
@@ -101,7 +106,10 @@ static ssize_t up3d_video_debugfs_read(struct file *file, char __user *buf,
 		ctx->device_info.vb_queue_overflow,
 		ctx->device_info.cur_v4l2_format.fmt.pix.pixelformat,
 		ctx->device_info.cur_v4l2_format.fmt.pix.width,
-		ctx->device_info.cur_v4l2_format.fmt.pix.height);
+		ctx->device_info.cur_v4l2_format.fmt.pix.height,
+		ctx->device_info.irq_interval_time_ms,
+		ctx->device_info.buf_queue_interval_time_ms,
+		ctx->device_info.fpga_enable_interval_time_ms);
     return simple_read_from_buffer(buf, count, ppos, tmp, len);
 }
 

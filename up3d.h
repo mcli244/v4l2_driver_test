@@ -30,6 +30,10 @@ struct up3d_device_info {
 	uint16_t 	vb_free_min;
 	uint16_t 	vb_queue_overflow;
 	struct v4l2_format 		cur_v4l2_format;
+
+	uint32_t	irq_interval_time_ms;
+	uint32_t	buf_queue_interval_time_ms;
+	uint32_t	fpga_enable_interval_time_ms;
 };
 
 

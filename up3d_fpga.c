@@ -17,6 +17,7 @@
 
 // 图像地址寄存器
 #define UP3D_FPGA_IMAGE_ADDR_TEST_REG           (0x18) // 32bit register 测试图的地址
+#define UP3D_FPGA_IMAGE_ADDR_TEST_RGB_REG       (0x1C) // 32bit register 测试图的RGB地址
 #define UP3D_FPGA_IMAGE_ADDR_LIFT_REG           (0x20) // 32bit register 
 #define UP3D_FPGA_IMAGE_ADDR_RIGHT_REG          (0x24) // 32bit register 
 #define UP3D_FPGA_IMAGE_ADDR_RGB_REG            (0x28) // 32bit register 
@@ -56,6 +57,7 @@ int up3d_fpga_set_test_image_addr(struct up3d_video_ctx *ctx, u32 addr)
 	}
 	dev_dbg(ctx->dev, "test_image_addr: 0x%x\n", addr);
 	writel(addr, ctx->fpga_base_addr + UP3D_FPGA_IMAGE_ADDR_TEST_REG);
+	writel(addr + 832*608, ctx->fpga_base_addr + UP3D_FPGA_IMAGE_ADDR_TEST_RGB_REG);
 	return 0;
 }
 
@@ -71,7 +73,7 @@ int up3d_fpga_set_output_image_addr(struct up3d_video_ctx *ctx, u32 addr)
     u32 rgb_addr = right_addr + ctx->output_images[2].width * ctx->output_images[2].height * ctx->output_images[2].bytes_per_pixel;
 
     // TODO: 注意4字节对齐
-	dev_dbg(ctx->dev, "left_addr: 0x%x, right_addr: 0x%x, rgb_addr: 0x%x\n", left_addr, right_addr, rgb_addr);
+	// dev_dbg(ctx->dev, "left_addr: 0x%x, right_addr: 0x%x, rgb_addr: 0x%x\n", left_addr, right_addr, rgb_addr);
     writel(left_addr, ctx->fpga_base_addr + UP3D_FPGA_IMAGE_ADDR_LIFT_REG);
     writel(right_addr, ctx->fpga_base_addr + UP3D_FPGA_IMAGE_ADDR_RIGHT_REG);
     writel(rgb_addr, ctx->fpga_base_addr + UP3D_FPGA_IMAGE_ADDR_RGB_REG);

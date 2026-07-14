@@ -91,7 +91,7 @@ void up3d_irq_work_handler(struct work_struct *work)
 {
 	static int count = 0;
 	struct up3d_video_ctx *ctx = container_of(work, struct up3d_video_ctx, irq_work);
-	dev_dbg(ctx->dev, "up3d_irq_work_handler: irq work callback\n");
+	// dev_dbg(ctx->dev, "up3d_irq_work_handler: irq work callback\n");
 	if(count < 10){
 		count++;
 		msleep(33);
@@ -106,7 +106,7 @@ irqreturn_t pl_cap_intc_irq_handler(int irq, void *dev_id)
     u64 curr_irq_time_ns;
     u32 interval_ms = 0;
 
-    dev_dbg(ctx->dev, "pl_cap_intc_irq_handler: irq handler %d\n", atomic_read(&ctx->device_info.irq_count));
+    // dev_dbg(ctx->dev, "pl_cap_intc_irq_handler: irq handler %d\n", atomic_read(&ctx->device_info.irq_count));
 
     curr_irq_time_ns = ktime_get_ns();
     if (prev_irq_time_ns != 0) {
@@ -191,7 +191,7 @@ static void up3d_buf_queue(struct vb2_buffer *vb)
 	last_time = now;
 	ctx->device_info.buf_queue_interval_time_ms = (uint32_t)interval_ms;
 
-	dev_dbg(ctx->dev, "up3d_buf_queue: Buffer %pad, interval since last queue: %lld ms\n", &dma_addr, interval_ms);
+	// dev_dbg(ctx->dev, "up3d_buf_queue: Buffer %pad, interval since last queue: %lld ms\n", &dma_addr, interval_ms);
 
 	spin_lock(&ctx->vb_queue_lock);
 	list_add_tail(&buf->list, &ctx->vb_queue_active);

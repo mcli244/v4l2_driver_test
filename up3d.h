@@ -22,13 +22,9 @@
 
 #define VIDIOC_UP3D_GET_STATUS  _IOR('V', 610, struct up3d_device_info)
 struct up3d_device_info {
-    atomic_t 	status;
-	atomic_t 	irq_is_disable;
 	atomic_t 	irq_count;
-	uint16_t 	vb_total;
 	uint16_t 	vb_free;
 	uint16_t 	vb_free_min;
-	uint16_t 	vb_queue_overflow;
 	struct v4l2_format 		cur_v4l2_format;
 
 	uint32_t	irq_interval_time_ms;
@@ -99,6 +95,8 @@ struct up3d_video_ctx
 	struct gpio_desc *completed_gpio;
 	struct timer_list key_debounce_timer;
 
+	bool is_capturing;
+	bool is_streaming;
 };
 
 #endif /*__UP3DTECH_610_H__*/

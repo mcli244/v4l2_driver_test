@@ -6,96 +6,92 @@
 #include <linux/delay.h>
 #include <linux/ktime.h>
 
+
+static void up3d_fpga_start(struct up3d_video_ctx *ctx, struct up3d_vb2_buf *vb)
+{
+	up3d_fpga_ctrl(ctx, 0);
+	up3d_fpga_set_output_image_addr(ctx, vb2_dma_contig_plane_dma_addr(&vb->vb.vb2_buf, 0));
+	up3d_fpga_ctrl(ctx, 1);
+
+	// dev_dbg(ctx->dev, "up3d_fpga_start: ctx %p\n", ctx);
+}
+
+static void up3d_fpga_stop(struct up3d_video_ctx *ctx)
+{
+	up3d_fpga_ctrl(ctx, 0);
+	// dev_dbg(ctx->dev, "up3d_fpga_stop: ctx %p\n", ctx);
+}
+
+static int up3d_begin_frame(struct up3d_video_ctx *ctx)
+{
+	unsigned long flags;
+	struct up3d_vb2_buf *up3d_vb;
+
+	if(list_empty(&ctx->vb_queue_active)){
+		dev_dbg(ctx->dev, "up3d_begin_frame: vb_queue_active is empty\n");
+		return -EINVAL;
+	}
+
+	spin_lock_irqsave(&ctx->vb_queue_lock, flags);
+	up3d_vb = list_first_entry(&ctx->vb_queue_active,
+								struct up3d_vb2_buf,
+								list);
+	list_del_init(&up3d_vb->list);
+	ctx->current_vb = up3d_vb;
+	spin_unlock_irqrestore(&ctx->vb_queue_lock, flags);
+
+	ctx->device_info.vb_free--;
+	if(ctx->device_info.vb_free < ctx->device_info.vb_free_min){
+		ctx->device_info.vb_free_min = ctx->device_info.vb_free;
+	}
+
+	up3d_fpga_start(ctx, up3d_vb);
+	ctx->is_capturing = true;
+
+	return 0;
+}
+
+static void up3d_vb2_buffer_set(struct up3d_vb2_buf *vb, enum vb2_buffer_state state)
+{
+	vb->vb.vb2_buf.timestamp = ktime_get_ns();
+	vb->vb.field = V4L2_FIELD_NONE;
+	vb2_buffer_done(&vb->vb.vb2_buf, state);
+}
+
 static void up3d_frame_process(struct up3d_video_ctx *ctx)
 {
-    struct up3d_vb2_buf *vb;
-    struct up3d_vb2_buf *next;
-    unsigned long flags;
 	static u64 prev_irq_time_ns = 0;
 	u64 curr_irq_time_ns;
     u32 interval_ms = 0;
 
-    if (!ctx){
+	// dev_dbg(ctx->dev, "up3d_frame_process: ctx %p\n", ctx);
+	if(!ctx->current_vb){
+		dev_err(ctx->dev, "up3d_frame_process: current_vb is NULL\n");
 		return;
 	}
+	up3d_vb2_buffer_set(ctx->current_vb, VB2_BUF_STATE_DONE);
+	ctx->current_vb = NULL;
+	ctx->is_capturing = false;
 
-    {
-        int empty_count = 0;
-        int max_count = 50; // 10ms * 50 = 500ms = 0.5s
-        bool got_buffer = false;
+	if(ctx->is_streaming){
+		up3d_begin_frame(ctx);
+	}
 
-        while (1) {
-            spin_lock_irqsave(&ctx->vb_queue_lock, flags);
-            if (!list_empty(&ctx->vb_queue_active)) {
-                got_buffer = true;
-				spin_unlock_irqrestore(&ctx->vb_queue_lock, flags);
-                break;
-            }
-            spin_unlock_irqrestore(&ctx->vb_queue_lock, flags);
-            msleep(10);
-            empty_count++;
-            if (empty_count >= max_count) {
-				if(ctx->current_vb != NULL){
-					up3d_fpga_ctrl(ctx, 0);
-					up3d_fpga_set_output_image_addr(ctx, vb2_dma_contig_plane_dma_addr(&ctx->current_vb->vb.vb2_buf, 0));
-					up3d_fpga_ctrl(ctx, 1);
-					ctx->device_info.fpga_discarded_frames_cnt++;
-					return;
-				}else {
-					dev_err(ctx->dev, "vb_queue_active still empty after %d ms, exit frame process\n", max_count * 10);
-					return;
-				}   
-            }
-        }
-    }
-
-    spin_lock_irqsave(&ctx->vb_queue_lock, flags);
-    vb = ctx->current_vb;
-    ctx->current_vb = NULL;
-
-    if (vb) {
-        spin_unlock_irqrestore(&ctx->vb_queue_lock, flags);
-        vb->vb.vb2_buf.timestamp = ktime_get_ns();
-        vb->vb.field = V4L2_FIELD_NONE;
-        vb2_buffer_done(&vb->vb.vb2_buf, VB2_BUF_STATE_DONE);
-    } else {
-        spin_unlock_irqrestore(&ctx->vb_queue_lock, flags);
-		dev_err(ctx->dev, "vb is NULL\n");
-    }
-
-	spin_lock_irqsave(&ctx->vb_queue_lock, flags);
-    next = list_first_entry(&ctx->vb_queue_active,
-                            struct up3d_vb2_buf,
-                            list);
-
-    list_del_init(&next->list);
-    ctx->current_vb = next;
-
-    spin_unlock_irqrestore(&ctx->vb_queue_lock, flags);
-	
-	
+	// debug
 	curr_irq_time_ns = ktime_get_ns();
     if (prev_irq_time_ns != 0) {
         interval_ms = (u32)((curr_irq_time_ns - prev_irq_time_ns) / 1000000);
         ctx->device_info.fpga_enable_interval_time_ms = interval_ms;
     }
     prev_irq_time_ns = curr_irq_time_ns;
-
-    /* 3. 启动 FPGA */
-	up3d_fpga_ctrl(ctx, 0);
-    up3d_fpga_set_output_image_addr(ctx, vb2_dma_contig_plane_dma_addr(&next->vb.vb2_buf, 0));
-    up3d_fpga_ctrl(ctx, 1);
 }
 
+
+// pl_cap_intc_irq_handler --> up3d_irq_work_handler --> up3d_frame_process
 void up3d_irq_work_handler(struct work_struct *work)
 {
-	static int count = 0;
 	struct up3d_video_ctx *ctx = container_of(work, struct up3d_video_ctx, irq_work);
 	// dev_dbg(ctx->dev, "up3d_irq_work_handler: irq work callback\n");
-	if(count < 10){
-		count++;
-		msleep(33);
-	}
 	up3d_frame_process(ctx);
 }
 
@@ -183,75 +179,41 @@ static void up3d_buf_queue(struct vb2_buffer *vb)
 	struct up3d_vb2_buf *buf = container_of(vbuf, struct up3d_vb2_buf, vb);
 	struct up3d_video_ctx *ctx = vb2_get_drv_priv(vb->vb2_queue);
 
-	dma_addr_t dma_addr = vb2_dma_contig_plane_dma_addr(vb, 0);
-
-	// Measure interval between two entries
-	if (last_time != 0)
-		interval_ms = ktime_to_ms(ktime_sub(now, last_time));
-	last_time = now;
-	ctx->device_info.buf_queue_interval_time_ms = (uint32_t)interval_ms;
-
+	// dma_addr_t dma_addr = vb2_dma_contig_plane_dma_addr(vb, 0);
 	// dev_dbg(ctx->dev, "up3d_buf_queue: Buffer %pad, interval since last queue: %lld ms\n", &dma_addr, interval_ms);
 
 	spin_lock(&ctx->vb_queue_lock);
 	list_add_tail(&buf->list, &ctx->vb_queue_active);
 	spin_unlock(&ctx->vb_queue_lock);
+	
+	// Measure interval between two entries
+	if (last_time != 0)
+		interval_ms = ktime_to_ms(ktime_sub(now, last_time));
+	last_time = now;
+	ctx->device_info.buf_queue_interval_time_ms = (uint32_t)interval_ms;
 	ctx->device_info.vb_free++;
+
+	if (ctx->is_streaming && !ctx->is_capturing)
+	{
+		up3d_begin_frame(ctx);
+	}
 }
 
 static int up3d_start_streaming(struct vb2_queue *q, unsigned int count)
 {
-	struct up3d_vb2_buf *up3d_vb, *tmp;
 	struct up3d_video_ctx *ctx = vb2_get_drv_priv(q);
 
-	dev_dbg(ctx->dev, "up3d_start_streaming: ctx %p\n", ctx);
+	ctx->is_streaming = true;
 
-	if (atomic_read(&ctx->device_info.status) == UP3D_STA_STOP)
-	{
-		atomic_set(&ctx->device_info.status, UP3D_STA_RUN);
+	unsigned long flags;
+	spin_lock_irqsave(&ctx->vb_queue_lock, flags);
+	bool is_empty = list_empty(&ctx->vb_queue_active);
+	spin_unlock_irqrestore(&ctx->vb_queue_lock, flags);
 
-		dev_dbg(ctx->dev, "up3d_start_streaming: set status to RUN\n");
-		atomic_set(&ctx->device_info.irq_is_disable, 0);
-		ctx->device_info.vb_total = 0;
-		list_for_each_entry_safe(up3d_vb, tmp, &ctx->vb_queue_active, list)
-		{
-			ctx->device_info.vb_total++;
-		}
-		ctx->device_info.vb_free = ctx->device_info.vb_total;
-		ctx->device_info.vb_free_min = ctx->device_info.vb_total;
-
-		dev_dbg(ctx->dev, "up3d_start_streaming: get one buffer from queue\n");
-		// 从队列里面取一个缓存，写给FPGA
-		{
-			unsigned long flags;
-			struct up3d_vb2_buf *vb;
-			uint32_t dma_addr;
-			
-			spin_lock_irqsave(&ctx->vb_queue_lock, flags);
-			if (list_empty(&ctx->vb_queue_active)) {
-				spin_unlock_irqrestore(&ctx->vb_queue_lock, flags);
-				return -EINVAL;
-			}
-			vb = list_first_entry(&ctx->vb_queue_active,
-								  struct up3d_vb2_buf,
-								  list);
-			list_del_init(&vb->list);
-			ctx->current_vb = vb;
-			dev_dbg(ctx->dev, "up3d_start_streaming: get one buffer from queue ctx->current_vb %p\n", ctx->current_vb);
-			spin_unlock_irqrestore(&ctx->vb_queue_lock, flags);
-			
-			dma_addr = vb2_dma_contig_plane_dma_addr(&vb->vb.vb2_buf, 0);
-			if (!dma_addr) {
-				dev_err(ctx->dev, "invalid dma\n");
-				return -EINVAL;
-			}
-			
-			up3d_fpga_ctrl(ctx, 0);
-			up3d_fpga_set_output_image_addr(ctx, dma_addr);
-			up3d_fpga_ctrl(ctx, 1);
-			dev_dbg(ctx->dev, "up3d_start_streaming: set output image address to 0x%x\n", dma_addr);
-		}
-		atomic_set(&ctx->device_info.status, UP3D_STA_RUN);
+	if (!is_empty) {
+		up3d_begin_frame(ctx);
+	}else{
+		dev_dbg(ctx->dev, "up3d_start_streaming: vb_queue_active is empty wailt for buffer in queue\n");
 	}
 
 	return 0;
@@ -259,33 +221,30 @@ static int up3d_start_streaming(struct vb2_queue *q, unsigned int count)
 
 static void up3d_stop_streaming(struct vb2_queue *q)
 {
-	struct up3d_vb2_buf *up3d_vb, *tmp;
 	struct up3d_video_ctx *ctx = vb2_get_drv_priv(q);
 
-	if (atomic_read(&ctx->device_info.status) == UP3D_STA_RUN)
-	{
-		gpiod_set_value_cansleep(ctx->completed_gpio, 0);
-		msleep(10);
-		// disable_irq_nosync(ctx->irq);	  // TODO: 后续应该是通过AXI-IIC通知FPGA停止产生中断
-		disable_irq(ctx->irq);	  // TODO: 后续应该是通过AXI-IIC通知FPGA停止产生中断
-		// atomic_set(&ctx->device_info.status, UP3D_STA_PAUSE); // note: 这里没有完全释放IRQ，只是暂停了中断，释放中断放到remove中
-		atomic_set(&ctx->device_info.status, UP3D_STA_STOP); 
+	dev_dbg(ctx->dev, "up3d_stop_streaming: ctx %p\n", ctx);
+	up3d_fpga_stop(ctx);
+	cancel_work_sync(&ctx->irq_work);
+	dev_dbg(ctx->dev, "up3d_stop_streaming: cancel_work_sync\n");
 
-		unsigned long flags;
-
-		spin_lock_irqsave(&ctx->vb_queue_lock, flags);
-		if(ctx->current_vb) {
-			vb2_buffer_done(&ctx->current_vb->vb.vb2_buf, VB2_BUF_STATE_ERROR);
-			ctx->current_vb = NULL;
-		}
-
-		list_for_each_entry_safe(up3d_vb, tmp, &ctx->vb_queue_active, list) {
-			list_del(&up3d_vb->list);
-			vb2_buffer_done(&up3d_vb->vb.vb2_buf, VB2_BUF_STATE_ERROR);
-		}
-		spin_unlock_irqrestore(&ctx->vb_queue_lock, flags);
-		atomic_set(&ctx->device_info.irq_is_disable, 1);
+	int cnt = 0;
+	if(ctx->current_vb){
+		up3d_vb2_buffer_set(ctx->current_vb, VB2_BUF_STATE_ERROR);
+		ctx->current_vb = NULL;
 	}
+
+	while (!list_empty(&ctx->vb_queue_active)) {
+        struct up3d_vb2_buf *buf;
+        buf = list_first_entry(&ctx->vb_queue_active,struct up3d_vb2_buf, list);
+        list_del(&buf->list);
+
+        up3d_vb2_buffer_set(buf, VB2_BUF_STATE_ERROR);
+		dev_dbg(ctx->dev, "up3d_stop_streaming: up3d_vb2_buffer_set cnt %d\n", cnt++);
+    }
+
+	ctx->is_streaming = false;
+	ctx->is_capturing = false;
 }
 
 static void up3d_wait_prepare(struct vb2_queue *q)

@@ -179,6 +179,7 @@ static struct platform_driver pl_cap_intc_driver = {
 
 module_platform_driver(pl_cap_intc_driver);
 
+MODULE_VERSION(UP3D_VERSION);
 MODULE_AUTHOR("CoreyLee <lixiangjun@up3dtech.com>");
-MODULE_DESCRIPTION("Up3d800w Video Driver");
+MODULE_DESCRIPTION("UP3D TECH UP800W Video Driver");
 MODULE_LICENSE("GPL");

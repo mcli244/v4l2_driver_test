@@ -9,6 +9,8 @@
 #include <linux/debugfs.h>
 #include <linux/miscdevice.h>
 
+#define UP3D_VERSION "1.0.0"
+
 // 最大分辨率
 #define WIDTH_MAX	4096
 #define HEIGHT_MAX	2160
